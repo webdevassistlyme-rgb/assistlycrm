@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 :root {
-  font-size: clamp(14px, calc(14px + (16 - 14) * ((100vw - 300px) / (1600 - 300))), 16px);
+  font-size: 14px;
 }
 
 .content-scroll {

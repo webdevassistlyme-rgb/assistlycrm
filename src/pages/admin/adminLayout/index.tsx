@@ -66,14 +66,14 @@ export default function AdminLayout({ children }: Props) {
             <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_8%_14%,rgba(132,44,255,0.2),transparent_28%),radial-gradient(circle_at_98%_0%,rgba(35,138,255,0.12),transparent_25%),linear-gradient(135deg,rgba(255,255,255,0.035),transparent_26%)]" />
             <div className="pointer-events-none fixed inset-0 bg-[linear-gradient(90deg,rgba(255,255,255,0.025)_1px,transparent_1px),linear-gradient(180deg,rgba(255,255,255,0.018)_1px,transparent_1px)] bg-[size:4rem_4rem] opacity-20" />
 
-            <aside className="fixed inset-y-0 left-0 z-10 flex w-[16rem] flex-col border-r border-white/10 bg-[#070910]/92 text-white shadow-2xl shadow-black/20 backdrop-blur-xl">
-                <div className="flex w-full items-center justify-center border-b border-white/10 px-6 py-5">
-                    <img className="max-w-[12rem]" src="/images/logoaside.png" alt="Assistly" />
+            <aside className="fixed inset-y-0 left-0 z-10 flex w-[13.5rem] flex-col border-r border-white/10 bg-[#070910]/92 text-white shadow-2xl shadow-black/20 backdrop-blur-xl 2xl:w-[16rem]">
+                <div className="flex w-full items-center justify-center border-b border-white/10 px-4 py-4 2xl:px-6 2xl:py-5">
+                    <img className="max-w-[9.75rem] 2xl:max-w-[12rem]" src="/images/logoaside.png" alt="Assistly" />
                 </div>
 
-                <div className="flex min-h-0 flex-1 flex-col px-3 py-5">
+                <div className="flex min-h-0 flex-1 flex-col px-2.5 py-4 2xl:px-3 2xl:py-5">
                     <nav className="content-scroll min-h-0 flex-1 overflow-y-auto pr-1" aria-label="Admin navigation">
-                        <div className="mb-3 flex items-center gap-2 px-4 text-xs font-semibold uppercase tracking-[0.16em] text-white/35">
+                        <div className="mb-3 flex items-center gap-2 px-3 text-xs font-semibold uppercase tracking-[0.16em] text-white/35 2xl:px-4">
                             <FiShield className="size-4" aria-hidden="true" />
                             Admin
                         </div>
@@ -84,7 +84,7 @@ export default function AdminLayout({ children }: Props) {
                                         to={path}
                                         className={({ isActive }) =>
                                             [
-                                                "flex h-11 items-center gap-3 rounded-lg px-4 text-sm font-medium transition",
+                                                "flex h-10 items-center gap-2.5 rounded-lg px-3 text-sm font-medium transition 2xl:h-11 2xl:gap-3 2xl:px-4",
                                                 isActive
                                                     ? "bg-white text-[#070910] shadow-lg shadow-white/10"
                                                     : "text-white/70 hover:bg-white/10 hover:text-white",
@@ -103,7 +103,7 @@ export default function AdminLayout({ children }: Props) {
                         <NavLink
                             to="/login"
                             onClick={clearAuthUser}
-                            className="flex h-11 items-center gap-3 rounded-lg px-4 text-sm font-medium text-white/70 transition hover:bg-white/10 hover:text-white"
+                            className="flex h-10 items-center gap-2.5 rounded-lg px-3 text-sm font-medium text-white/70 transition hover:bg-white/10 hover:text-white 2xl:h-11 2xl:gap-3 2xl:px-4"
                         >
                             <FiLogOut className="size-5 shrink-0" aria-hidden="true" />
                             <span>Logout</span>
@@ -112,16 +112,16 @@ export default function AdminLayout({ children }: Props) {
                 </div>
             </aside>
 
-            <main className="relative flex h-screen flex-col pl-[16rem]">
-                <header className="z-20 border-b border-white/10 bg-[#070910]/80 px-6 py-4 backdrop-blur-xl">
-                    <div className="flex min-h-12 items-center justify-between gap-4">
+            <main className="relative flex h-screen flex-col pl-[13.5rem] 2xl:pl-[16rem]">
+                <header className="z-20 border-b border-white/10 bg-[#070910]/80 px-4 py-3 backdrop-blur-xl 2xl:px-6 2xl:py-4">
+                    <div className="flex min-h-11 items-center justify-between gap-3 2xl:min-h-12 2xl:gap-4">
                         <div className="min-w-0">
                             <p className="text-xs font-medium uppercase tracking-[0.18em] text-white/40">Admin Workspace</p>
                             <h1 className="mt-1 truncate text-xl font-semibold text-white">Dashboard</h1>
                         </div>
 
-                        <div className="flex min-w-0 flex-1 items-center justify-end gap-3">
-                            <label className="hidden h-11 w-full max-w-[22rem] items-center gap-3 rounded-lg border border-white/10 bg-white/[0.06] px-3 text-white/50 transition focus-within:border-[#842cff] focus-within:bg-white/[0.08] focus-within:ring-2 focus-within:ring-[#842cff]/20 md:flex">
+                        <div className="flex min-w-0 flex-1 items-center justify-end gap-2 2xl:gap-3">
+                            <label className="hidden h-10 w-full max-w-[18rem] items-center gap-3 rounded-lg border border-white/10 bg-white/[0.06] px-3 text-white/50 transition focus-within:border-[#842cff] focus-within:bg-white/[0.08] focus-within:ring-2 focus-within:ring-[#842cff]/20 lg:flex 2xl:h-11 2xl:max-w-[22rem]">
                                 <FiSearch className="size-5 shrink-0" aria-hidden="true" />
                                 <input
                                     className="h-full min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-white/35"
@@ -133,7 +133,7 @@ export default function AdminLayout({ children }: Props) {
                             <div className="relative">
                                 <button
                                     className={[
-                                        "relative flex size-11 shrink-0 items-center justify-center rounded-lg border text-white/70 transition hover:bg-white/10 hover:text-white focus:outline-none focus:ring-2 focus:ring-[#842cff]/60",
+                                        "relative flex size-10 shrink-0 items-center justify-center rounded-lg border text-white/70 transition hover:bg-white/10 hover:text-white focus:outline-none focus:ring-2 focus:ring-[#842cff]/60 2xl:size-11",
                                         isNotificationsOpen ? "border-[#842cff]/70 bg-white/[0.08]" : "border-white/10 bg-white/[0.06]",
                                     ].join(" ")}
                                     type="button"
@@ -183,7 +183,7 @@ export default function AdminLayout({ children }: Props) {
                             </div>
 
                             <Link
-                                className="flex size-11 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/[0.06] text-white/70 transition hover:bg-white/10 hover:text-white focus:outline-none focus:ring-2 focus:ring-[#842cff]/60"
+                                className="flex size-10 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/[0.06] text-white/70 transition hover:bg-white/10 hover:text-white focus:outline-none focus:ring-2 focus:ring-[#842cff]/60 2xl:size-11"
                                 to="/admin/messages"
                                 aria-label="Messages"
                             >
@@ -191,7 +191,7 @@ export default function AdminLayout({ children }: Props) {
                             </Link>
 
                             <button
-                                className="flex h-11 shrink-0 items-center gap-3 rounded-lg border border-white/10 bg-white/[0.06] py-1.5 pl-1.5 pr-3 text-left transition hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-[#842cff]/60"
+                                className="flex h-10 shrink-0 items-center gap-2 rounded-lg border border-white/10 bg-white/[0.06] py-1 pl-1 pr-2.5 text-left transition hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-[#842cff]/60 2xl:h-11 2xl:gap-3 2xl:py-1.5 2xl:pl-1.5 2xl:pr-3"
                                 type="button"
                             >
                                 <span className="flex size-8 items-center justify-center rounded-md bg-[linear-gradient(135deg,#842cff,#4a0ebd)] text-sm font-semibold text-white">
@@ -209,7 +209,7 @@ export default function AdminLayout({ children }: Props) {
 
                 <div
                     className={[
-                        "content-scroll min-h-0 flex-1 overflow-y-auto p-6",
+                        "content-scroll min-h-0 flex-1 overflow-y-auto p-4 2xl:p-6",
                         isScrolling ? "is-scrolling" : "",
                     ].join(" ")}
                     onScroll={handleScroll}
