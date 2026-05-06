@@ -1,7 +1,9 @@
 import { NavLink } from "react-router";
 import {
     FiBarChart2,
+    FiBookOpen,
     FiCalendar,
+    FiCheckSquare,
     FiLogOut,
     FiSettings,
     FiShoppingBag,
@@ -9,18 +11,25 @@ import {
     FiUsers,
     FiUser,
 } from "react-icons/fi";
+import type { FeatureKey } from "../../api/features";
+import { useFeatureFlags } from "../../hooks/useFeatureFlags";
 
 const navItems = [
-    { label: "Dashboard", path: "/dashboard", icon: FiBarChart2 },
-    { label: "Leads", path: "/leads", icon: FiTarget },
-    { label: "Teams", path: "/teams", icon: FiUsers },
-    { label: "Sales", path: "/sales", icon: FiShoppingBag },
-    { label: "Calendar", path: "/calendar", icon: FiCalendar },
-    { label: "Profile", path: "/profile", icon: FiUser },
-    { label: "Settings", path: "/settings", icon: FiSettings },
+    { label: "Dashboard", path: "/dashboard", icon: FiBarChart2, feature: "dashboard" },
+    { label: "Leads", path: "/leads", icon: FiTarget, feature: "leads" },
+    { label: "Tasks", path: "/tasks", icon: FiCheckSquare, feature: "tasks" },
+    { label: "Knowledge Base", path: "/knowledge-base", icon: FiBookOpen, feature: "knowledge-base" },
+    { label: "Teams", path: "/teams", icon: FiUsers, feature: "teams" },
+    { label: "Sales", path: "/sales", icon: FiShoppingBag, feature: "sales" },
+    { label: "Calendar", path: "/calendar", icon: FiCalendar, feature: "calendar" },
+    { label: "Profile", path: "/profile", icon: FiUser, feature: "profile" },
+    { label: "Settings", path: "/settings", icon: FiSettings, feature: "settings" },
 ];
 
 export default function SideBar() {
+    const { isEnabled } = useFeatureFlags();
+    const visibleNavItems = navItems.filter((item) => isEnabled(item.feature as FeatureKey, "employee"));
+
     return (
         <aside className="fixed inset-y-0 left-0 z-10 flex w-[16rem] flex-col border-r border-white/10 bg-[#070910]/90 text-white shadow-2xl shadow-black/20 backdrop-blur-xl">
             <div className="flex w-full items-center justify-center border-b border-white/10 px-6 py-5">
@@ -28,9 +37,9 @@ export default function SideBar() {
             </div>
 
             <div className="flex min-h-0 flex-1 flex-col justify-between px-3 py-5">
-                <nav aria-label="Main navigation">
+                <nav className="content-scroll min-h-0 overflow-y-auto pr-1" aria-label="Main navigation">
                     <ul className="flex flex-col gap-1">
-                        {navItems.map(({ label, path, icon: Icon }) => (
+                        {visibleNavItems.map(({ label, path, icon: Icon }) => (
                             <li key={label}>
                                 <NavLink
                                     to={path}

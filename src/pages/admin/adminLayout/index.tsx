@@ -1,10 +1,17 @@
 import type { ReactNode } from "react";
 import { useRef, useState } from "react";
 import { Link, NavLink } from "react-router";
+import { clearAuthUser } from "../../../api/auth";
+import type { FeatureKey } from "../../../api/features";
+import { useFeatureFlags } from "../../../hooks/useFeatureFlags";
 import {
     FiBarChart2,
     FiBell,
+    FiBookOpen,
     FiChevronDown,
+    FiCheckSquare,
+    FiImage,
+    FiFileText,
     FiLogOut,
     FiMessageCircle,
     FiSearch,
@@ -14,22 +21,32 @@ import {
     FiUserPlus,
     FiUsers,
 } from "react-icons/fi";
+import { FaRegMoneyBillAlt } from "react-icons/fa";
+import { MdPassword } from "react-icons/md";
 
 type Props = {
     children: ReactNode;
 };
 
 const adminNavItems = [
-    { label: "Dashboard", path: "/admin/dashboard", icon: FiBarChart2 },
-    { label: "Teams", path: "/admin/teams", icon: FiUsers },
-    { label: "Employees", path: "/admin/employees", icon: FiUserPlus },
-    { label: "Leads", path: "/admin/leads", icon: FiTarget },
-    { label: "Settings", path: "/admin/settings", icon: FiSettings },
+    { label: "Dashboard", path: "/admin/dashboard", icon: FiBarChart2, feature: "dashboard" },
+    { label: "Teams", path: "/admin/teams", icon: FiUsers, feature: "teams" },
+    { label: "Employees", path: "/admin/employees", icon: FiUserPlus, feature: "employees" },
+    { label: "HR", path: "/admin/hr", icon: FiFileText, feature: "hr" },
+    { label: "Leads", path: "/admin/leads", icon: FiTarget, feature: "leads" },
+    { label: "Tasks", path: "/admin/tasks", icon: FiCheckSquare, feature: "tasks" },
+    { label: "Knowledge Base", path: "/admin/knowledge-base", icon: FiBookOpen, feature: "knowledge-base" },
+    { label: "Media", path: "/admin/media", icon: FiImage, feature: "media" },
+    { label: "Payroll", path: "/admin/payroll", icon: FaRegMoneyBillAlt, feature: "payroll" },
+    { label: "Credentials", path: "/admin/credentials", icon: MdPassword, feature: "credentials" },
+    { label: "Settings", path: "/admin/settings", icon: FiSettings, feature: "settings" },
 ];
 
 export default function AdminLayout({ children }: Props) {
     const [isScrolling, setIsScrolling] = useState(false);
     const scrollTimer = useRef<number | undefined>(undefined);
+    const { isEnabled } = useFeatureFlags();
+    const visibleNavItems = adminNavItems.filter((item) => isEnabled(item.feature as FeatureKey, "admin"));
 
     const handleScroll = () => {
         setIsScrolling(true);
@@ -47,14 +64,14 @@ export default function AdminLayout({ children }: Props) {
                     <img className="max-w-[12rem]" src="/images/logoaside.png" alt="Assistly" />
                 </div>
 
-                <div className="flex min-h-0 flex-1 flex-col justify-between px-3 py-5">
-                    <nav aria-label="Admin navigation">
+                <div className="flex min-h-0 flex-1 flex-col px-3 py-5">
+                    <nav className="content-scroll min-h-0 flex-1 overflow-y-auto pr-1" aria-label="Admin navigation">
                         <div className="mb-3 flex items-center gap-2 px-4 text-xs font-semibold uppercase tracking-[0.16em] text-white/35">
                             <FiShield className="size-4" aria-hidden="true" />
                             Admin
                         </div>
                         <ul className="flex flex-col gap-1">
-                            {adminNavItems.map(({ label, path, icon: Icon }) => (
+                            {visibleNavItems.map(({ label, path, icon: Icon }) => (
                                 <li key={label}>
                                     <NavLink
                                         to={path}
@@ -68,16 +85,17 @@ export default function AdminLayout({ children }: Props) {
                                         }
                                     >
                                         <Icon className="size-5 shrink-0" aria-hidden="true" />
-                                        <span>{label}</span>
+                                        <span className="min-w-0 truncate">{label}</span>
                                     </NavLink>
                                 </li>
                             ))}
                         </ul>
                     </nav>
 
-                    <nav aria-label="Admin account navigation">
+                    <nav className="mt-4 shrink-0 border-t border-white/10 pt-4" aria-label="Admin account navigation">
                         <NavLink
                             to="/login"
+                            onClick={clearAuthUser}
                             className="flex h-11 items-center gap-3 rounded-lg px-4 text-sm font-medium text-white/70 transition hover:bg-white/10 hover:text-white"
                         >
                             <FiLogOut className="size-5 shrink-0" aria-hidden="true" />

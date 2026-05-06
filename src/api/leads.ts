@@ -21,11 +21,26 @@ export type Lead = {
     phone: string;
     website: string;
     source: string;
+    category: string;
     status: LeadStatus;
     assignedAgent: Employee | null;
     assignedTeam: Team | null;
     googlePlaceId: string;
     notes: string;
+    comments?: Array<{
+        _id?: string;
+        authorName: string;
+        authorType: "admin" | "employee";
+        body: string;
+        createdAt: string;
+    }>;
+    followUpAt: string | null;
+    followUpNote: string;
+    followUpPriority: number;
+    aiScore: number;
+    aiScoreReason: string;
+    aiScoreSource: string;
+    aiScoredAt: string | null;
 };
 
 export type LeadInput = {
@@ -37,11 +52,19 @@ export type LeadInput = {
     phone: string;
     website: string;
     source: string;
+    category: string;
     status: LeadStatus;
     assignedAgent: string | null;
     assignedTeam: string | null;
     googlePlaceId: string;
     notes: string;
+    followUpAt?: string | null;
+    followUpNote?: string;
+    followUpPriority?: number;
+    aiScore?: number;
+    aiScoreReason?: string;
+    aiScoreSource?: string;
+    aiScoredAt?: string | null;
 };
 
 export type GooglePlaceLead = {
@@ -52,8 +75,28 @@ export type GooglePlaceLead = {
     website: string;
 };
 
-export async function getLeads() {
-    const response = await api.get<Lead[]>("/leads");
+export type GooglePlacesSearchResult = {
+    places: GooglePlaceLead[];
+    nextPageToken: string;
+};
+
+export type GooglePlacesImportAllResult = GooglePlacesSearchResult & {
+    leads: Lead[];
+};
+
+export type GooglePlacesAutoSearchResult = GooglePlacesImportAllResult & {
+    product: string;
+    location: string;
+    searchedQueries: string[];
+};
+
+export type LeadScoreResult = {
+    usedAi: boolean;
+    leads: Lead[];
+};
+
+export async function getLeads(params: { assignedAgent?: string } = {}) {
+    const response = await api.get<Lead[]>("/leads", { params });
     return response.data;
 }
 
@@ -72,12 +115,65 @@ export async function archiveLead(id: string) {
     return response.data;
 }
 
-export async function searchGooglePlaces(textQuery: string) {
-    const response = await api.post<GooglePlaceLead[]>("/leads/google-places/search", { textQuery });
+export async function autoAssignLead(id: string) {
+    const response = await api.patch<Lead>(`/leads/${id}/auto-assign`);
     return response.data;
 }
 
-export async function importGooglePlaces(places: GooglePlaceLead[]) {
-    const response = await api.post<Lead[]>("/leads/google-places/import", { places });
+export async function scheduleLeadFollowUp(
+    id: string,
+    followUp: { followUpAt: string; followUpNote?: string; followUpPriority?: number }
+) {
+    const response = await api.patch<Lead>(`/leads/${id}/follow-up`, followUp);
+    return response.data;
+}
+
+export async function addLeadComment(
+    id: string,
+    comment: { body: string; authorName?: string; authorType?: "admin" | "employee" }
+) {
+    const response = await api.post<Lead>(`/leads/${id}/comments`, comment);
+    return response.data;
+}
+
+export async function updateLeadStatus(id: string, status: LeadStatus) {
+    const response = await api.patch<Lead>(`/leads/${id}/status`, { status });
+    return response.data;
+}
+
+export async function scoreLeadsByHighestPotential(leadIds: string[] = []) {
+    const response = await api.post<LeadScoreResult>("/leads/ai-score", { leadIds });
+    return response.data;
+}
+
+export async function searchGooglePlaces({ textQuery, pageToken = "" }: { textQuery: string; pageToken?: string }) {
+    const response = await api.post<GooglePlacesSearchResult>("/leads/google-places/search", { textQuery, pageToken });
+    return response.data;
+}
+
+export async function importGooglePlaces(places: GooglePlaceLead[], category = "") {
+    const response = await api.post<Lead[]>("/leads/google-places/import", { places, category });
+    return response.data;
+}
+
+export async function searchAndImportGooglePlaces({ textQuery, category = "" }: { textQuery: string; category?: string }) {
+    const response = await api.post<GooglePlacesImportAllResult>("/leads/google-places/search-import", { textQuery, category });
+    return response.data;
+}
+
+export async function autoSearchGooglePlacesLeads({
+    product,
+    location = "",
+    maxResults = 10000,
+}: {
+    product: string;
+    location?: string;
+    maxResults?: number;
+}) {
+    const response = await api.post<GooglePlacesAutoSearchResult>("/leads/google-places/auto-search", {
+        product,
+        location,
+        maxResults,
+    });
     return response.data;
 }

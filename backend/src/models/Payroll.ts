@@ -1,0 +1,67 @@
+import { Schema, model } from "mongoose";
+
+export type PayrollStatus = "Paid" | "Pending" | "Failed" | "Completed" | "Review" | "Applied" | "Enabled";
+export type PayrollPayType = "Monthly" | "Hourly" | "Contract";
+export type PayrollItemCategory = "Payroll Runs" | "Payouts" | "Deductions" | "Tax Settings";
+
+export type PayrollRecordDocument = {
+  employeeName: string;
+  email: string;
+  employeeId: string;
+  department: string;
+  payType: PayrollPayType;
+  grossPay: number;
+  deductions: number;
+  netPay: number;
+  status: PayrollStatus;
+  paidOn: string;
+  payPeriod: string;
+  isArchived: boolean;
+};
+
+export type PayrollListItemDocument = {
+  category: PayrollItemCategory;
+  name: string;
+  second: string;
+  third: string;
+  fourth: string;
+  status: PayrollStatus;
+  isArchived: boolean;
+};
+
+const payrollRecordSchema = new Schema<PayrollRecordDocument>(
+  {
+    employeeName: { type: String, required: true, trim: true },
+    email: { type: String, required: true, trim: true },
+    employeeId: { type: String, required: true, trim: true },
+    department: { type: String, required: true, trim: true },
+    payType: { type: String, enum: ["Monthly", "Hourly", "Contract"], required: true, trim: true, default: "Monthly" },
+    grossPay: { type: Number, required: true, min: 0 },
+    deductions: { type: Number, required: true, min: 0 },
+    netPay: { type: Number, required: true, min: 0 },
+    status: { type: String, enum: ["Paid", "Pending", "Failed", "Completed", "Review", "Applied", "Enabled"], default: "Pending" },
+    paidOn: { type: String, required: true, trim: true, default: "-" },
+    payPeriod: { type: String, required: true, trim: true, default: "Current Month" },
+    isArchived: { type: Boolean, default: false },
+  },
+  { timestamps: true }
+);
+
+const payrollListItemSchema = new Schema<PayrollListItemDocument>(
+  {
+    category: { type: String, enum: ["Payroll Runs", "Payouts", "Deductions", "Tax Settings"], required: true },
+    name: { type: String, required: true, trim: true },
+    second: { type: String, required: true, trim: true },
+    third: { type: String, required: true, trim: true },
+    fourth: { type: String, trim: true, default: "" },
+    status: { type: String, enum: ["Paid", "Pending", "Failed", "Completed", "Review", "Applied", "Enabled"], default: "Pending" },
+    isArchived: { type: Boolean, default: false },
+  },
+  { timestamps: true }
+);
+
+payrollRecordSchema.index({ employeeId: 1, payPeriod: 1, isArchived: 1 });
+payrollListItemSchema.index({ category: 1, isArchived: 1 });
+
+export const PayrollRecord = model<PayrollRecordDocument>("PayrollRecord", payrollRecordSchema);
+export const PayrollListItem = model<PayrollListItemDocument>("PayrollListItem", payrollListItemSchema);

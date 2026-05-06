@@ -12,7 +12,17 @@ export async function loginWithEmployeeCode(employeeCode: string) {
 
 export function getAuthUser() {
     const rawUser = localStorage.getItem("authUser");
-    return rawUser ? (JSON.parse(rawUser) as AuthUser) : null;
+
+    if (!rawUser) {
+        return null;
+    }
+
+    try {
+        return JSON.parse(rawUser) as AuthUser;
+    } catch {
+        localStorage.removeItem("authUser");
+        return null;
+    }
 }
 
 export function setAuthUser(user: AuthUser) {
