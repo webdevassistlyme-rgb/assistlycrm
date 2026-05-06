@@ -81,6 +81,24 @@ const statusClass: Record<string, string> = {
     Enabled: "bg-emerald-400/10 text-emerald-200",
 };
 
+function payrollItemFieldLabels(category: PayrollItemCategory) {
+    if (category === "Deductions") {
+        return {
+            name: "Deduction",
+            second: "Amount",
+            third: "Description",
+            fourth: "Frequency",
+        };
+    }
+
+    return {
+        name: category === "Tax Settings" ? "Setting" : "Name",
+        second: category === "Payroll Runs" ? "Period" : category === "Tax Settings" ? "Status" : "Scope",
+        third: category === "Tax Settings" ? "Description" : "Amount",
+        fourth: category === "Tax Settings" ? "Updated" : "Detail",
+    };
+}
+
 function StatusBadge({ status }: { status: string }) {
     return (
         <span className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium ${statusClass[status] || "bg-white/[0.06] text-white/55"}`}>
@@ -363,6 +381,7 @@ export default function PayrollPage() {
     const archiveItemMutation = useMutation({ mutationFn: archivePayrollItem, onSuccess: () => { refreshPayroll(); closeDeletePrompt(); } });
     const restoreItemMutation = useMutation({ mutationFn: restorePayrollItem, onSuccess: refreshPayroll });
     const money = (value = 0) => formatCurrency(value, systemSettings?.currencyCode || "USD");
+    const itemLabels = itemCategory ? payrollItemFieldLabels(itemCategory) : null;
 
     const totalPages = Math.max(Math.ceil(employees.length / pageSize), 1);
     const visibleEmployees = useMemo(() => employees.slice((page - 1) * pageSize, page * pageSize), [employees, page, pageSize]);
@@ -415,7 +434,17 @@ export default function PayrollPage() {
         event.preventDefault();
         if (!itemCategory || !itemForm.name.trim()) return;
 
-        createItemMutation.mutate({ category: itemCategory, ...itemForm });
+        createItemMutation.mutate({
+            category: itemCategory,
+            ...itemForm,
+            fourth: itemCategory === "Deductions" ? itemForm.fourth || "Every payroll" : itemForm.fourth,
+            status: itemCategory === "Deductions" && itemForm.status === "Pending" ? "Applied" : itemForm.status,
+        });
+    };
+
+    const openItemModal = () => {
+        setItemForm(itemCategory === "Deductions" ? { ...emptyItemForm, fourth: "Every payroll", status: "Applied" } : emptyItemForm);
+        setItemModalOpen(true);
     };
 
     const exportCsv = () => {
@@ -745,9 +774,13 @@ export default function PayrollPage() {
                         <div className="flex min-h-14 items-center justify-between border-b border-white/10 px-5">
                             <div>
                                 <h3 className="text-base font-semibold text-white">{activeTab}</h3>
-                                <p className="mt-1 text-xs text-white/40">Manage {activeTab.toLowerCase()} for payroll.</p>
+                                <p className="mt-1 text-xs text-white/40">
+                                    {activeTab === "Deductions"
+                                        ? "Add fixed employee deductions such as SSS, benefits, or contributions."
+                                        : `Manage ${activeTab.toLowerCase()} for payroll.`}
+                                </p>
                             </div>
-                            <button className="flex h-9 items-center gap-2 rounded-lg bg-[linear-gradient(135deg,#842cff,#4a0ebd)] px-3 text-sm font-semibold text-white transition hover:brightness-110" type="button" onClick={() => setItemModalOpen(true)}>
+                            <button className="flex h-9 items-center gap-2 rounded-lg bg-[linear-gradient(135deg,#842cff,#4a0ebd)] px-3 text-sm font-semibold text-white transition hover:brightness-110" type="button" onClick={openItemModal}>
                                 <FiPlus className="size-4" />
                                 Add
                             </button>
@@ -756,10 +789,10 @@ export default function PayrollPage() {
                             <table className="w-full min-w-[54rem] table-fixed border-separate border-spacing-0 text-left">
                                 <thead className="sticky top-0 z-10 bg-[#11151f] text-[0.74rem] font-medium text-white/65 shadow-[12px_0_0_#11151f]">
                                     <tr>
-                                        <th className="w-[28%] px-4 py-4">{activeTab === "Tax Settings" ? "Setting" : "Name"}</th>
-                                        <th className="w-[22%] px-4 py-4">{activeTab === "Payroll Runs" ? "Period" : activeTab === "Tax Settings" ? "Status" : "Scope"}</th>
-                                        <th className="w-[22%] px-4 py-4">{activeTab === "Tax Settings" ? "Description" : "Amount"}</th>
-                                        <th className="w-[18%] px-4 py-4">{activeTab === "Tax Settings" ? "Updated" : "Detail"}</th>
+                                        <th className="w-[28%] px-4 py-4">{itemLabels?.name || "Name"}</th>
+                                        <th className="w-[22%] px-4 py-4">{itemLabels?.second || "Scope"}</th>
+                                        <th className="w-[22%] px-4 py-4">{itemLabels?.third || "Amount"}</th>
+                                        <th className="w-[18%] px-4 py-4">{itemLabels?.fourth || "Detail"}</th>
                                         <th className="w-[10%] px-4 py-4 text-right">Actions</th>
                                     </tr>
                                 </thead>
@@ -940,20 +973,28 @@ export default function PayrollPage() {
                             <div className="flex items-center justify-between border-b border-white/10 px-5 py-3.5">
                                 <div>
                                     <p className="text-xs font-medium uppercase tracking-[0.14em] text-white/35">{itemCategory}</p>
-                                    <h3 className="mt-1 text-base font-semibold text-white">Add Payroll Item</h3>
+                                    <h3 className="mt-1 text-base font-semibold text-white">{itemCategory === "Deductions" ? "Add Employee Deduction" : "Add Payroll Item"}</h3>
                                 </div>
                                 <button className="flex size-8 items-center justify-center rounded-lg border border-white/10 bg-white/[0.05] text-white/60 transition hover:bg-white/10 hover:text-white" type="button" onClick={() => setItemModalOpen(false)} aria-label="Close modal"><FiX className="size-4" /></button>
                             </div>
                             <div className="grid gap-4 p-5">
                                 {[
-                                    ["Name", "name"],
-                                    [itemCategory === "Payroll Runs" ? "Period" : itemCategory === "Tax Settings" ? "Status" : "Scope", "second"],
-                                    [itemCategory === "Tax Settings" ? "Description" : "Amount", "third"],
-                                    [itemCategory === "Tax Settings" ? "Updated" : "Detail", "fourth"],
-                                ].map(([label, field]) => (
+                                    [itemLabels?.name || "Name", "name", itemCategory === "Deductions" ? "SSS" : ""],
+                                    [itemLabels?.second || "Scope", "second", itemCategory === "Deductions" ? "500" : ""],
+                                    [itemLabels?.third || "Amount", "third", itemCategory === "Deductions" ? "Philippines employee contribution" : ""],
+                                    [itemLabels?.fourth || "Detail", "fourth", itemCategory === "Deductions" ? "Every payroll" : ""],
+                                ].map(([label, field, placeholder]) => (
                                     <label key={field}>
                                         <span className="text-xs font-medium uppercase tracking-[0.14em] text-white/35">{label}</span>
-                                        <input className="mt-2 h-11 w-full rounded-lg border border-white/10 bg-black/20 px-3 text-sm font-semibold text-white outline-none transition placeholder:text-white/30 focus:border-[#842cff] focus:ring-2 focus:ring-[#842cff]/20" value={String(itemForm[field as keyof typeof itemForm])} onChange={(event) => setItemForm((form) => ({ ...form, [field]: event.target.value }))} />
+                                        <input
+                                            className="mt-2 h-11 w-full rounded-lg border border-white/10 bg-black/20 px-3 text-sm font-semibold text-white outline-none transition placeholder:text-white/30 focus:border-[#842cff] focus:ring-2 focus:ring-[#842cff]/20"
+                                            type={itemCategory === "Deductions" && field === "second" ? "number" : "text"}
+                                            min={itemCategory === "Deductions" && field === "second" ? "0" : undefined}
+                                            step={itemCategory === "Deductions" && field === "second" ? "0.01" : undefined}
+                                            value={String(itemForm[field as keyof typeof itemForm])}
+                                            placeholder={placeholder}
+                                            onChange={(event) => setItemForm((form) => ({ ...form, [field]: event.target.value }))}
+                                        />
                                     </label>
                                 ))}
                                 <label>

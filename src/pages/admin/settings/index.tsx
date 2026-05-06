@@ -369,7 +369,7 @@ export default function AdminSettings() {
                               : [
                                 ["Currency", systemSettings?.currencyCode || "USD"],
                                 ["Cycle", systemSettings?.payrollBillingCycle || "Monthly"],
-                                ["Deduction", `${systemSettings?.payrollDeductionPercentage ?? 13}%`],
+                                ["Run Day", `Day ${systemSettings?.payrollRunDay ?? 15}`],
                             ]
                     ).map(([label, value]) => (
                         <div key={label} className="rounded-lg border border-white/10 bg-white/[0.04] px-3.5 py-3">
@@ -650,27 +650,11 @@ export default function AdminSettings() {
                                                     </td>
                                                 </tr>
                                                 <tr className="bg-white/[0.02] text-sm text-white/80 transition hover:bg-white/[0.035]">
-                                                    <td className="px-5 py-4 font-semibold text-white">Auto deduction percentage</td>
-                                                    <td className="px-5 py-4 text-white/65">{systemSettings?.payrollDeductionPercentage ?? 13}%</td>
+                                                    <td className="px-5 py-4 font-semibold text-white">Employee deductions</td>
+                                                    <td className="px-5 py-4 text-white/65">Payroll Deductions tab</td>
                                                     <td className="px-5 py-4 text-white/45">Payroll</td>
-                                                    <td className="px-5 py-4">
-                                                        <div className="flex items-center gap-2">
-                                                            <input
-                                                                className="h-9 w-28 rounded-lg border border-white/10 bg-black/20 px-3 text-sm font-semibold text-white outline-none transition focus:border-[#842cff] focus:ring-2 focus:ring-[#842cff]/20 disabled:opacity-60"
-                                                                type="number"
-                                                                min={0}
-                                                                max={100}
-                                                                step={0.01}
-                                                                defaultValue={systemSettings?.payrollDeductionPercentage ?? 13}
-                                                                disabled={updateSystemSettingsMutation.isPending}
-                                                                onBlur={(event) =>
-                                                                    updateSystemSettingsMutation.mutate({
-                                                                        payrollDeductionPercentage: Number(event.target.value),
-                                                                    })
-                                                                }
-                                                            />
-                                                            <span className="text-xs font-semibold text-white/45">Applied when payroll auto-generates</span>
-                                                        </div>
+                                                    <td className="px-5 py-4 text-sm text-white/45">
+                                                        Add SSS, benefits, or other fixed employee deductions in Payroll &gt; Deductions.
                                                     </td>
                                                 </tr>
                                             </>

@@ -39,6 +39,23 @@ async function formatMoney(value: number) {
   return value.toLocaleString("en-US", { style: "currency", currency: await getCurrencyCode() });
 }
 
+function isEmployeeDeductionItem(item: PayrollListItemDocument) {
+  const frequency = String(item.fourth || "").toLowerCase();
+  return ["every payroll", "per employee", "monthly", "weekly", "semi-monthly", "each payroll"].some((label) => frequency.includes(label));
+}
+
+async function getEmployeeDeductionTotal() {
+  const deductionItems = await PayrollListItem.find({
+    category: "Deductions",
+    isArchived: false,
+    status: { $ne: "Failed" },
+  });
+
+  return deductionItems
+    .filter(isEmployeeDeductionItem)
+    .reduce((sum, item) => sum + toMoney(item.second), 0);
+}
+
 function sanitizeStatus(value: unknown, fallback: PayrollStatus = "Pending") {
   return statuses.includes(value as PayrollStatus) ? (value as PayrollStatus) : fallback;
 }
@@ -64,16 +81,16 @@ async function seedPayroll() {
   ]);
 }
 
-async function syncEmployeePayrollRecords(payPeriod = "", deductionPercentage?: number) {
+async function syncEmployeePayrollRecords(payPeriod = "") {
   const settings = await getSystemSettings();
   const resolvedPayPeriod = payPeriod || currentPeriod(settings.payrollBillingCycle);
-  const resolvedDeductionPercentage = deductionPercentage ?? settings.payrollDeductionPercentage;
+  const employeeDeductionTotal = await getEmployeeDeductionTotal();
   const employees = await Employee.find({ status: { $ne: "Archived" } }).sort({ employeeCode: 1 });
   const records = [];
 
   for (const employee of employees) {
     const grossPay = toMoney(employee.salary);
-    const deductions = Math.round(grossPay * (resolvedDeductionPercentage / 100) * 100) / 100;
+    const deductions = Math.min(grossPay, employeeDeductionTotal);
     const existingRecords = await PayrollRecord.find({ employeeId: employee.employeeCode, payPeriod: resolvedPayPeriod, isArchived: false }).sort({ updatedAt: -1, createdAt: -1 });
     const existingRecord = existingRecords[0];
 
@@ -124,7 +141,7 @@ export async function listPayrollStats(_request: Request, response: Response) {
   await seedPayroll();
   const settings = await getSystemSettings();
   const payPeriod = currentPeriod(settings.payrollBillingCycle);
-  await syncEmployeePayrollRecords(payPeriod, settings.payrollDeductionPercentage);
+  await syncEmployeePayrollRecords(payPeriod);
   const activeEmployees = await Employee.find({ status: { $ne: "Archived" } }).select("employeeCode");
   const activeEmployeeCodes = activeEmployees.map((employee) => employee.employeeCode);
   const records = await PayrollRecord.find({ isArchived: false, employeeId: { $in: activeEmployeeCodes }, payPeriod });
@@ -149,7 +166,7 @@ export async function listPayrollRecords(request: Request, response: Response) {
   const requestedPayPeriod = String(request.query.payPeriod || (showArchived ? "" : currentPeriod(settings.payrollBillingCycle))).trim();
 
   if (!showArchived) {
-    await syncEmployeePayrollRecords(requestedPayPeriod || currentPeriod(settings.payrollBillingCycle), settings.payrollDeductionPercentage);
+    await syncEmployeePayrollRecords(requestedPayPeriod || currentPeriod(settings.payrollBillingCycle));
   }
 
   const search = String(request.query.search || "").trim();
@@ -280,7 +297,7 @@ export async function restorePayrollRecord(request: Request, response: Response)
 export async function runPayroll(request: Request, response: Response) {
   const settings = await getSystemSettings();
   const payPeriod = String(request.body.payPeriod || currentPeriod(settings.payrollBillingCycle)).trim();
-  const records = await syncEmployeePayrollRecords(payPeriod, settings.payrollDeductionPercentage);
+  const records = await syncEmployeePayrollRecords(payPeriod);
   const created = records.filter((record) => record.payPeriod === payPeriod && record.status !== "Paid");
 
   const netTotal = created.reduce((sum, record) => sum + record.netPay, 0);
@@ -317,8 +334,8 @@ export async function createPayrollItem(request: Request, response: Response) {
     name: request.body.name,
     second: request.body.second || "",
     third: request.body.third || "",
-    fourth: request.body.fourth || todayLabel(),
-    status: sanitizeStatus(request.body.status, category === "Tax Settings" ? "Enabled" : "Pending"),
+    fourth: request.body.fourth || (category === "Deductions" ? "Every payroll" : todayLabel()),
+    status: sanitizeStatus(request.body.status, category === "Tax Settings" ? "Enabled" : category === "Deductions" ? "Applied" : "Pending"),
   });
 
   response.status(201).json(item);

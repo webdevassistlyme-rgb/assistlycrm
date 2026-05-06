@@ -9,7 +9,6 @@ const defaultSystemSettings = {
   currencyCode: "USD" as CurrencyCode,
   payrollBillingCycle: "Monthly" as PayrollBillingCycle,
   payrollRunDay: 15,
-  payrollDeductionPercentage: 13,
 };
 
 export async function getSystemSettings() {
@@ -34,7 +33,6 @@ export async function updateSystemSettings(request: Request, response: Response)
   const currencyCode = String(request.body.currencyCode || existingSettings.currencyCode || "USD").trim().toUpperCase();
   const payrollBillingCycle = String(request.body.payrollBillingCycle || existingSettings.payrollBillingCycle || "Monthly").trim();
   const payrollRunDay = Number(request.body.payrollRunDay ?? existingSettings.payrollRunDay ?? 15);
-  const payrollDeductionPercentage = Number(request.body.payrollDeductionPercentage ?? existingSettings.payrollDeductionPercentage ?? 13);
 
   if (!currencies.includes(currencyCode as CurrencyCode)) {
     response.status(400).json({ message: "Valid currencyCode is required" });
@@ -51,18 +49,12 @@ export async function updateSystemSettings(request: Request, response: Response)
     return;
   }
 
-  if (!Number.isFinite(payrollDeductionPercentage) || payrollDeductionPercentage < 0 || payrollDeductionPercentage > 100) {
-    response.status(400).json({ message: "payrollDeductionPercentage must be between 0 and 100" });
-    return;
-  }
-
   const settings = await SystemSettings.findOneAndUpdate(
     { key: "system" },
     {
       currencyCode,
       payrollBillingCycle,
       payrollRunDay: Math.round(payrollRunDay),
-      payrollDeductionPercentage: Math.round(payrollDeductionPercentage * 100) / 100,
     },
     { new: true, upsert: true, runValidators: true }
   );

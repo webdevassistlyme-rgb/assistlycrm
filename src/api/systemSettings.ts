@@ -9,7 +9,6 @@ export type SystemSettings = {
     currencyCode: CurrencyCode;
     payrollBillingCycle: PayrollBillingCycle;
     payrollRunDay: number;
-    payrollDeductionPercentage: number;
 };
 
 export const currencyOptions: Array<{ code: CurrencyCode; label: string; symbol: string }> = [
@@ -27,7 +26,7 @@ export async function getSystemSettings() {
     return response.data;
 }
 
-export async function updateSystemSettings(settings: Partial<Pick<SystemSettings, "currencyCode" | "payrollBillingCycle" | "payrollRunDay" | "payrollDeductionPercentage">>) {
+export async function updateSystemSettings(settings: Partial<Pick<SystemSettings, "currencyCode" | "payrollBillingCycle" | "payrollRunDay">>) {
     const response = await api.put<SystemSettings>("/system-settings", settings);
     return response.data;
 }

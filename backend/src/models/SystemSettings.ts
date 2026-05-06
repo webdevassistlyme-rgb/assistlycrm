@@ -8,7 +8,6 @@ export type SystemSettingsDocument = {
   currencyCode: CurrencyCode;
   payrollBillingCycle: PayrollBillingCycle;
   payrollRunDay: number;
-  payrollDeductionPercentage: number;
 };
 
 const systemSettingsSchema = new Schema<SystemSettingsDocument>(
@@ -17,7 +16,6 @@ const systemSettingsSchema = new Schema<SystemSettingsDocument>(
     currencyCode: { type: String, enum: ["USD", "PHP", "EUR", "GBP", "JPY"], default: "USD" },
     payrollBillingCycle: { type: String, enum: ["Monthly", "Semi-monthly", "Weekly"], default: "Monthly" },
     payrollRunDay: { type: Number, min: 1, max: 31, default: 15 },
-    payrollDeductionPercentage: { type: Number, min: 0, max: 100, default: 13 },
   },
   { timestamps: true }
 );
