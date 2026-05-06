@@ -81,6 +81,11 @@ export async function markPayrollRecordPaid(id: string) {
     return response.data;
 }
 
+export async function markPayrollRecordUnpaid(id: string) {
+    const response = await api.patch<PayrollRecord>(`/payroll/records/${id}/unpaid`);
+    return response.data;
+}
+
 export async function archivePayrollRecord(id: string) {
     const response = await api.patch<PayrollRecord>(`/payroll/records/${id}/archive`);
     return response.data;

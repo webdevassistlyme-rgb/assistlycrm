@@ -264,6 +264,21 @@ export async function markPayrollRecordPaid(request: Request, response: Response
   response.json(record);
 }
 
+export async function markPayrollRecordUnpaid(request: Request, response: Response) {
+  const record = await PayrollRecord.findByIdAndUpdate(
+    request.params.id,
+    { status: "Pending", paidOn: "-" },
+    { new: true, runValidators: true }
+  );
+
+  if (!record) {
+    response.status(404).json({ message: "Payroll record not found" });
+    return;
+  }
+
+  response.json(record);
+}
+
 export async function archivePayrollRecord(request: Request, response: Response) {
   const record = await PayrollRecord.findByIdAndUpdate(
     request.params.id,

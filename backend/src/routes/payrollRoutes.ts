@@ -8,6 +8,7 @@ import {
   listPayrollRecords,
   listPayrollStats,
   markPayrollRecordPaid,
+  markPayrollRecordUnpaid,
   restorePayrollItem,
   restorePayrollRecord,
   runPayroll,
@@ -21,6 +22,7 @@ payrollRouter.get("/records", listPayrollRecords);
 payrollRouter.post("/records", createPayrollRecord);
 payrollRouter.put("/records/:id", updatePayrollRecord);
 payrollRouter.patch("/records/:id/paid", markPayrollRecordPaid);
+payrollRouter.patch("/records/:id/unpaid", markPayrollRecordUnpaid);
 payrollRouter.patch("/records/:id/archive", archivePayrollRecord);
 payrollRouter.patch("/records/:id/restore", restorePayrollRecord);
 payrollRouter.post("/run", runPayroll);

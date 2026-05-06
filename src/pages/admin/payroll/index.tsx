@@ -32,6 +32,7 @@ import {
     getPayrollRecords,
     getPayrollStats,
     markPayrollRecordPaid,
+    markPayrollRecordUnpaid,
     restorePayrollItem,
     restorePayrollRecord,
     runPayroll,
@@ -324,6 +325,7 @@ export default function PayrollPage() {
     const [itemModalOpen, setItemModalOpen] = useState(false);
     const [itemForm, setItemForm] = useState(emptyItemForm);
     const [deleteTarget, setDeleteTarget] = useState<{ type: "record"; record: PayrollRecord } | { type: "item"; item: PayrollListItem } | null>(null);
+    const [paymentTarget, setPaymentTarget] = useState<{ action: "paid" | "unpaid"; record: PayrollRecord } | null>(null);
     const [deleteStep, setDeleteStep] = useState<1 | 2>(1);
     const [selectedRecordIds, setSelectedRecordIds] = useState<string[]>([]);
 
@@ -367,6 +369,7 @@ export default function PayrollPage() {
         onSuccess: () => { refreshPayroll(); closeRecordModal(); },
     });
     const markPaidMutation = useMutation({ mutationFn: markPayrollRecordPaid, onSuccess: refreshPayroll });
+    const markUnpaidMutation = useMutation({ mutationFn: markPayrollRecordUnpaid, onSuccess: refreshPayroll });
     const archiveRecordMutation = useMutation({ mutationFn: archivePayrollRecord, onSuccess: () => { refreshPayroll(); closeDeletePrompt(); } });
     const restoreRecordMutation = useMutation({ mutationFn: restorePayrollRecord, onSuccess: refreshPayroll });
     const runPayrollMutation = useMutation({ mutationFn: runPayroll, onSuccess: refreshPayroll });
@@ -486,6 +489,17 @@ export default function PayrollPage() {
         if (!deleteTarget) return;
         if (deleteTarget.type === "record") archiveRecordMutation.mutate(deleteTarget.record._id);
         if (deleteTarget.type === "item") archiveItemMutation.mutate(deleteTarget.item._id);
+    };
+
+    const confirmPaymentStatus = () => {
+        if (!paymentTarget) return;
+
+        if (paymentTarget.action === "paid") {
+            markPaidMutation.mutate(paymentTarget.record._id, { onSuccess: () => setPaymentTarget(null) });
+            return;
+        }
+
+        markUnpaidMutation.mutate(paymentTarget.record._id, { onSuccess: () => setPaymentTarget(null) });
     };
 
     const toggleAllVisibleRecords = () => {
@@ -699,8 +713,19 @@ export default function PayrollPage() {
                                                             <button className="inline-flex size-8 items-center justify-center rounded-lg text-[#cbb7ff] transition hover:bg-[#842cff]/10 hover:text-white" type="button" onClick={() => setPayslipRecord(employee)} aria-label={`Generate payslip for ${employee.employeeName}`}>
                                                                 <FiFileText className="size-4" />
                                                             </button>
-                                                            <button className="inline-flex size-8 items-center justify-center rounded-lg text-emerald-100/65 transition hover:bg-emerald-400/10 hover:text-emerald-100 disabled:opacity-35" type="button" disabled={employee.status === "Paid"} onClick={() => markPaidMutation.mutate(employee._id)} aria-label={`Mark ${employee.employeeName} paid`}>
-                                                                <FiCheck className="size-4" />
+                                                            <button
+                                                                className={[
+                                                                    "inline-flex size-8 items-center justify-center rounded-lg transition",
+                                                                    employee.status === "Paid"
+                                                                        ? "text-yellow-100/65 hover:bg-yellow-400/10 hover:text-yellow-100"
+                                                                        : "text-emerald-100/65 hover:bg-emerald-400/10 hover:text-emerald-100",
+                                                                ].join(" ")}
+                                                                type="button"
+                                                                onClick={() => setPaymentTarget({ action: employee.status === "Paid" ? "unpaid" : "paid", record: employee })}
+                                                                aria-label={employee.status === "Paid" ? `Set ${employee.employeeName} unpaid` : `Mark ${employee.employeeName} paid`}
+                                                                title={employee.status === "Paid" ? "Set unpaid" : "Mark paid"}
+                                                            >
+                                                                {employee.status === "Paid" ? <FiRotateCcw className="size-4" /> : <FiCheck className="size-4" />}
                                                             </button>
                                                             <button className="inline-flex size-8 items-center justify-center rounded-lg text-yellow-100/65 transition hover:bg-yellow-400/10 hover:text-yellow-100" type="button" onClick={() => openDeletePrompt({ type: "record", record: employee })} aria-label={`Archive ${employee.employeeName}`}>
                                                                 <FiArchive className="size-4" />
@@ -1009,6 +1034,68 @@ export default function PayrollPage() {
                                 <button className="h-10 rounded-lg bg-[linear-gradient(135deg,#842cff,#4a0ebd)] px-4 text-sm font-semibold text-white transition hover:brightness-110 disabled:opacity-60" type="submit" disabled={createItemMutation.isPending}>Add Item</button>
                             </div>
                         </form>
+                    </div>
+                )}
+
+                {paymentTarget && (
+                    <div className="modal-backdrop-enter fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm">
+                        <div className="modal-panel-enter w-full max-w-[30rem] overflow-hidden rounded-lg border border-white/10 bg-[#0d1018] shadow-2xl shadow-black/40">
+                            <div className="border-b border-white/10 bg-white/[0.035] px-5 py-4">
+                                <div className="flex items-start gap-3">
+                                    <span
+                                        className={[
+                                            "flex size-10 shrink-0 items-center justify-center rounded-lg border",
+                                            paymentTarget.action === "paid"
+                                                ? "border-emerald-300/20 bg-emerald-300/10 text-emerald-100"
+                                                : "border-yellow-300/20 bg-yellow-300/10 text-yellow-100",
+                                        ].join(" ")}
+                                    >
+                                        {paymentTarget.action === "paid" ? <FiCheck className="size-5" /> : <FiRotateCcw className="size-5" />}
+                                    </span>
+                                    <div>
+                                        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-white/35">Confirm Payroll Status</p>
+                                        <h3 className="mt-1 text-lg font-semibold text-white">
+                                            {paymentTarget.action === "paid" ? "Mark this payroll as paid?" : "Set this payroll back to unpaid?"}
+                                        </h3>
+                                        <p className="mt-1 text-sm leading-6 text-white/55">
+                                            {paymentTarget.action === "paid"
+                                                ? "This will mark the employee payroll paid and set today's paid date."
+                                                : "This will move the record back to Pending and clear the paid date."}
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="p-5">
+                                <div className="rounded-lg border border-white/10 bg-white/[0.035] p-4">
+                                    <p className="text-sm font-semibold text-white">{paymentTarget.record.employeeName}</p>
+                                    <p className="mt-1 text-xs text-white/45">
+                                        {paymentTarget.record.employeeId} · {paymentTarget.record.payPeriod} · {money(paymentTarget.record.netPay)}
+                                    </p>
+                                </div>
+                            </div>
+                            <div className="flex justify-end gap-2 border-t border-white/10 px-5 py-3">
+                                <button
+                                    className="h-10 rounded-lg border border-white/10 bg-white/[0.05] px-4 text-sm font-semibold text-white/60 transition hover:bg-white/10 hover:text-white"
+                                    type="button"
+                                    onClick={() => setPaymentTarget(null)}
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    className={[
+                                        "h-10 rounded-lg px-4 text-sm font-semibold transition disabled:opacity-60",
+                                        paymentTarget.action === "paid"
+                                            ? "bg-emerald-400 text-black hover:bg-emerald-300"
+                                            : "bg-yellow-400 text-black hover:bg-yellow-300",
+                                    ].join(" ")}
+                                    type="button"
+                                    onClick={confirmPaymentStatus}
+                                    disabled={markPaidMutation.isPending || markUnpaidMutation.isPending}
+                                >
+                                    {paymentTarget.action === "paid" ? "Mark Paid" : "Set Unpaid"}
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 )}
 
