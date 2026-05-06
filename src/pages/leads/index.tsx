@@ -27,10 +27,12 @@ const employeeStatusOptions: LeadStatus[] = [
 ];
 
 function getLeadActivity(lead: Lead) {
+    const assignedName = lead.assignedAgent?.name || lead.assignedAgentName || "you";
+
     return [
         {
             label: "Assigned",
-            detail: `This lead is assigned to ${lead.assignedAgent?.name || "you"}.`,
+            detail: `This lead is assigned to ${assignedName}.`,
             status: "Done",
         },
         {

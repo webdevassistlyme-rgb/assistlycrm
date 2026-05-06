@@ -30,6 +30,7 @@ type ImportedLead = {
   category: string;
   status: (typeof leadStatuses)[number];
   assignedAgent: null;
+  assignedAgentName: string;
   autoAssignedAt: null;
   assignedTeam: null;
   googlePlaceId: string;
@@ -658,6 +659,7 @@ export async function createLead(request: Request, response: Response) {
     category: request.body.category || "",
     status: request.body.status || "NEW",
     assignedAgent,
+    assignedAgentName: request.body.assignedAgentName || "",
     autoAssignedAt: assignedAgent && !request.body.assignedAgent ? new Date() : null,
     assignedTeam: request.body.assignedTeam || null,
     googlePlaceId: request.body.googlePlaceId || "",
@@ -708,6 +710,7 @@ export async function importLeads(request: Request, response: Response) {
         category: String(lead.category || lead["Biz Type"] || "").trim(),
         status: normalizeLeadStatus(lead.status || lead.Status),
         assignedAgent: null,
+        assignedAgentName: String(lead.assignedAgentName || lead.assignedToName || lead["Assigned To"] || "").trim(),
         autoAssignedAt: null,
         assignedToName: String(lead.assignedToName || lead["Assigned To"] || "").trim(),
         assignedTeam: null,
@@ -730,7 +733,6 @@ export async function importLeads(request: Request, response: Response) {
     return;
   }
 
-  const assignmentCandidates = await createAssignmentCandidates();
   const importedLeadKeys = new Set<string>();
   const dedupedLeads = validLeads.filter((lead) => {
     const key = getLeadDedupKey(lead);
@@ -760,8 +762,6 @@ export async function importLeads(request: Request, response: Response) {
     dedupedLeads.map((lead) => {
       const duplicateFilters = getLeadDuplicateFilters(lead);
       const importedAssignedAgent = employeesByAssignedTo.get(normalizeLeadValue(lead.assignedToName)) || null;
-      const assignedAgent = importedAssignedAgent || pickAssignmentCandidate(assignmentCandidates);
-      const autoAssignedAt = assignedAgent && !importedAssignedAgent ? new Date() : null;
       const { createdAt, assignedToName, ...leadFields } = lead;
       const setFields: Record<string, unknown> = {
         leadName: leadFields.leadName,
@@ -775,6 +775,9 @@ export async function importLeads(request: Request, response: Response) {
         category: leadFields.category,
         notes: leadFields.notes,
         googlePlaceId: leadFields.googlePlaceId,
+        assignedAgent: importedAssignedAgent,
+        assignedAgentName: assignedToName,
+        autoAssignedAt: null,
       };
       const noteComment = leadFields.notes
         ? {
@@ -785,11 +788,6 @@ export async function importLeads(request: Request, response: Response) {
           }
         : null;
 
-      if (importedAssignedAgent) {
-        setFields.assignedAgent = importedAssignedAgent;
-        setFields.autoAssignedAt = null;
-      }
-
       return {
         updateOne: {
           filter: duplicateFilters.length > 0 ? { $or: duplicateFilters } : { businessName: lead.businessName, businessAddress: lead.businessAddress },
@@ -798,7 +796,6 @@ export async function importLeads(request: Request, response: Response) {
             ...(noteComment ? { $push: { comments: noteComment } } : {}),
             $setOnInsert: {
               status: leadFields.status,
-              ...(!importedAssignedAgent ? { assignedAgent, autoAssignedAt } : {}),
               assignedTeam: leadFields.assignedTeam,
               followUpAt: leadFields.followUpAt,
               followUpNote: leadFields.followUpNote,
@@ -849,6 +846,7 @@ export async function updateLead(request: Request, response: Response) {
     category: request.body.category || "",
     status: request.body.status || "NEW",
     assignedAgent: request.body.assignedAgent || null,
+    assignedAgentName: request.body.assignedAgentName || "",
     assignedTeam: request.body.assignedTeam || null,
     googlePlaceId: request.body.googlePlaceId || "",
     notes: request.body.notes || "",

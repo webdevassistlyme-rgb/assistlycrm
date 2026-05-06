@@ -61,6 +61,7 @@ const emptyLead: LeadInput = {
     category: "",
     status: "NEW",
     assignedAgent: null,
+    assignedAgentName: "",
     assignedTeam: null,
     googlePlaceId: "",
     notes: "",
@@ -215,6 +216,7 @@ function getRelativeTime(value?: string | null) {
 }
 
 function getLeadActivity(lead: Lead) {
+    const assignedName = lead.assignedAgent?.name || lead.assignedAgentName;
     const activities = [
         {
             label: "Lead created",
@@ -223,9 +225,9 @@ function getLeadActivity(lead: Lead) {
         },
         {
             label: "Assigned",
-            detail: lead.assignedAgent ? `${lead.assignedAgent.name} owns this lead.` : "Waiting for an active agent assignment.",
-            status: lead.assignedAgent ? "Done" : "Next",
-            action: lead.assignedAgent ? "" : "assign",
+            detail: assignedName ? `${assignedName} owns this lead.` : "Waiting for an active agent assignment.",
+            status: assignedName ? "Done" : "Next",
+            action: assignedName ? "" : "assign",
         },
     ];
 
@@ -273,6 +275,7 @@ function toLeadInput(lead: Lead, notes: string): LeadInput {
         category: lead.category || "",
         status: lead.status,
         assignedAgent: lead.assignedAgent?._id || null,
+        assignedAgentName: lead.assignedAgentName || "",
         assignedTeam: lead.assignedTeam?._id || null,
         googlePlaceId: lead.googlePlaceId || "",
         notes,
@@ -930,7 +933,7 @@ export default function AdminLeads() {
                                                     Assigned Agent
                                                 </p>
                                                 <p className="mt-3 text-sm font-semibold text-white">
-                                                    {selectedLead.assignedAgent?.name || "Unassigned"}
+                                                    {selectedLead.assignedAgent?.name || selectedLead.assignedAgentName || "Unassigned"}
                                                 </p>
                                             </div>
 

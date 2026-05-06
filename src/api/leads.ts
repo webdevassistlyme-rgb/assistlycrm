@@ -24,6 +24,7 @@ export type Lead = {
     category: string;
     status: LeadStatus;
     assignedAgent: Employee | null;
+    assignedAgentName: string;
     autoAssignedAt: string | null;
     assignedTeam: Team | null;
     googlePlaceId: string;
@@ -56,6 +57,7 @@ export type LeadInput = {
     category: string;
     status: LeadStatus;
     assignedAgent: string | null;
+    assignedAgentName?: string;
     assignedTeam: string | null;
     googlePlaceId: string;
     notes: string;
