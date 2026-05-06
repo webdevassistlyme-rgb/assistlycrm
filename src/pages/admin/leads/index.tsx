@@ -19,6 +19,7 @@ import {
 } from "react-icons/fi";
 import { FaWhatsapp } from "react-icons/fa";
 import AdminLayout from "../adminLayout";
+import { getEmployees } from "../../../api/employees";
 import {
     archiveLead,
     autoSearchGooglePlacesLeads,
@@ -296,6 +297,10 @@ export default function AdminLeads() {
         queryKey: ["leads"],
         queryFn: () => getLeads(),
     });
+    const { data: employees = [] } = useQuery({
+        queryKey: ["employees"],
+        queryFn: getEmployees,
+    });
     const [activeTab, setActiveTab] = useState<LeadStatus | "ALL">("ALL");
     const [activeCategoryTab, setActiveCategoryTab] = useState("ALL");
     const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
@@ -315,6 +320,9 @@ export default function AdminLeads() {
     const [followUpDateTime, setFollowUpDateTime] = useState("");
     const [commentDraft, setCommentDraft] = useState("");
     const [isCommentEditing, setIsCommentEditing] = useState(false);
+    const [isAssignEditing, setIsAssignEditing] = useState(false);
+    const [assignmentEmployeeId, setAssignmentEmployeeId] = useState("");
+    const [assignmentName, setAssignmentName] = useState("");
     const [deleteTarget, setDeleteTarget] = useState<Lead | null>(null);
     const [deleteStep, setDeleteStep] = useState<1 | 2>(1);
     const [importMessage, setImportMessage] = useState("");
@@ -405,6 +413,29 @@ export default function AdminLeads() {
         },
     });
 
+    const saveAssignmentMutation = useMutation({
+        mutationFn: ({
+            lead,
+            assignedAgent,
+            assignedAgentName,
+        }: {
+            lead: Lead;
+            assignedAgent: string | null;
+            assignedAgentName: string;
+        }) =>
+            updateLead(lead._id, {
+                ...toLeadInput(lead, lead.notes || ""),
+                assignedAgent,
+                assignedAgentName,
+            }),
+        onSuccess: (lead) => {
+            queryClient.setQueryData<Lead[]>(["leads"], (current = []) =>
+                current.map((currentLead) => (currentLead._id === lead._id ? lead : currentLead))
+            );
+            setIsAssignEditing(false);
+        },
+    });
+
     const searchAndImportPlacesMutation = useMutation({
         mutationFn: searchAndImportGooglePlaces,
         onSuccess: (result) => {
@@ -459,6 +490,7 @@ export default function AdminLeads() {
 
         return ["ALL", ...Array.from(categoryNames.values()).sort((a, b) => a.localeCompare(b))];
     }, [leads]);
+    const activeEmployees = useMemo(() => employees.filter((employee) => employee.status !== "Archived"), [employees]);
 
     const filteredLeads = useMemo(() => {
         const visibleLeads = leads.filter((lead) => {
@@ -581,6 +613,9 @@ export default function AdminLeads() {
     useEffect(() => {
         setCommentDraft(selectedLead?.notes || "");
         setIsCommentEditing(false);
+        setIsAssignEditing(false);
+        setAssignmentEmployeeId(selectedLead?.assignedAgent?._id || "");
+        setAssignmentName(selectedLead?.assignedAgent?.name || selectedLead?.assignedAgentName || "");
     }, [selectedLead?._id, selectedLead?.notes]);
 
     const handleAiSort = () => {
@@ -607,6 +642,22 @@ export default function AdminLeads() {
     const cancelCommentEdit = () => {
         setCommentDraft(selectedLead?.notes || "");
         setIsCommentEditing(false);
+    };
+    const handleSaveAssignment = () => {
+        if (!selectedLead) {
+            return;
+        }
+
+        saveAssignmentMutation.mutate({
+            lead: selectedLead,
+            assignedAgent: assignmentEmployeeId || null,
+            assignedAgentName: assignmentName.trim(),
+        });
+    };
+    const cancelAssignmentEdit = () => {
+        setAssignmentEmployeeId(selectedLead?.assignedAgent?._id || "");
+        setAssignmentName(selectedLead?.assignedAgent?.name || selectedLead?.assignedAgentName || "");
+        setIsAssignEditing(false);
     };
     const handleActivityAction = (action?: string) => {
         if (!selectedLead || !action) {
@@ -936,12 +987,73 @@ export default function AdminLeads() {
                                     <div className="rounded-lg border border-white/10 bg-white/[0.04] p-4">
                                         <div className="grid gap-5 md:grid-cols-[12rem_1fr]">
                                             <div>
-                                                <p className="text-xs font-medium uppercase tracking-[0.14em] text-white/35">
-                                                    Assigned Agent
-                                                </p>
-                                                <p className="mt-3 text-sm font-semibold text-white">
-                                                    {selectedLead.assignedAgent?.name || selectedLead.assignedAgentName || "Unassigned"}
-                                                </p>
+                                                <div className="flex items-center justify-between gap-3">
+                                                    <p className="text-xs font-medium uppercase tracking-[0.14em] text-white/35">
+                                                        Assigned Agent
+                                                    </p>
+                                                    {!isAssignEditing && (
+                                                        <button
+                                                            className="rounded-md border border-white/10 bg-white/[0.06] px-2 py-1 text-xs font-semibold text-white/65 transition hover:bg-white/10 hover:text-white"
+                                                            type="button"
+                                                            onClick={() => setIsAssignEditing(true)}
+                                                        >
+                                                            {selectedLead.assignedAgent || selectedLead.assignedAgentName ? "Edit" : "Assign"}
+                                                        </button>
+                                                    )}
+                                                </div>
+                                                {!isAssignEditing ? (
+                                                    <p className="mt-3 text-sm font-semibold text-white">
+                                                        {selectedLead.assignedAgent?.name || selectedLead.assignedAgentName || "Unassigned"}
+                                                    </p>
+                                                ) : (
+                                                    <div className="mt-3 space-y-2">
+                                                        <select
+                                                            className="h-10 w-full rounded-lg border border-white/10 bg-[#0d1018] px-3 text-sm font-semibold text-white outline-none transition focus:border-[#842cff] focus:ring-2 focus:ring-[#842cff]/20"
+                                                            value={assignmentEmployeeId}
+                                                            onChange={(event) => {
+                                                                const employeeId = event.target.value;
+                                                                const employee = activeEmployees.find((item) => item._id === employeeId);
+
+                                                                setAssignmentEmployeeId(employeeId);
+                                                                setAssignmentName(employee?.name || "");
+                                                            }}
+                                                        >
+                                                            <option value="">Manual / unassigned</option>
+                                                            {activeEmployees.map((employee) => (
+                                                                <option key={employee._id} value={employee._id}>
+                                                                    {employee.name}
+                                                                </option>
+                                                            ))}
+                                                        </select>
+                                                        <input
+                                                            className="h-10 w-full rounded-lg border border-white/10 bg-black/20 px-3 text-sm font-semibold text-white outline-none transition placeholder:text-white/30 focus:border-[#842cff] focus:ring-2 focus:ring-[#842cff]/20"
+                                                            value={assignmentName}
+                                                            onChange={(event) => {
+                                                                setAssignmentName(event.target.value);
+                                                                setAssignmentEmployeeId("");
+                                                            }}
+                                                            placeholder="Type manual assignee name"
+                                                        />
+                                                        <div className="flex gap-2">
+                                                            <button
+                                                                className="h-9 rounded-lg border border-white/10 bg-white/[0.05] px-3 text-xs font-semibold text-white/60 transition hover:bg-white/10 hover:text-white"
+                                                                type="button"
+                                                                onClick={cancelAssignmentEdit}
+                                                                disabled={saveAssignmentMutation.isPending}
+                                                            >
+                                                                Cancel
+                                                            </button>
+                                                            <button
+                                                                className="h-9 rounded-lg border border-[#842cff]/30 bg-[#842cff]/10 px-3 text-xs font-semibold text-[#cbb7ff] transition hover:bg-[#842cff]/20 disabled:cursor-not-allowed disabled:opacity-60"
+                                                                type="button"
+                                                                onClick={handleSaveAssignment}
+                                                                disabled={saveAssignmentMutation.isPending}
+                                                            >
+                                                                {saveAssignmentMutation.isPending ? "Saving" : "Save"}
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                )}
                                             </div>
 
                                             <div>
