@@ -1,10 +1,9 @@
 import type { FormEvent } from "react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
     FiCopy,
     FiChevronDown,
-    FiChevronUp,
     FiEye,
     FiEyeOff,
     FiFilter,
@@ -26,6 +25,11 @@ import {
     type Credential as SavedCredential,
 } from "../../../api/credentials";
 import { getTools } from "../../../api/tools";
+import {
+    DataTablePagination,
+    DataTableSortHeader,
+    type SortDirection,
+} from "../../../components/admin/DataTable";
 
 const emptyCredential = {
     username: "",
@@ -33,18 +37,6 @@ const emptyCredential = {
     platform: "",
     company: "",
 };
-
-function SortHeader({ children }: { children: string }) {
-    return (
-        <span className="inline-flex items-center gap-1.5">
-            {children}
-            <span className="flex flex-col text-white/30" aria-hidden="true">
-                <FiChevronUp className="size-3" />
-                <FiChevronDown className="-mt-1.5 size-3" />
-            </span>
-        </span>
-    );
-}
 
 function FilterDropdown({
     label,
@@ -112,6 +104,8 @@ type CredentialStat = {
     icon: IconType;
 };
 
+type CredentialSortField = "platform" | "username" | "password" | "status" | "updatedAt";
+
 const statusClass: Record<string, string> = {
     Active: "bg-emerald-400/10 text-emerald-200",
     Review: "bg-yellow-400/10 text-yellow-100/80",
@@ -130,6 +124,10 @@ export default function Credentials() {
     const [deleteStep, setDeleteStep] = useState<1 | 2>(1);
     const [visiblePasswords, setVisiblePasswords] = useState<Set<string>>(new Set());
     const [credentialForm, setCredentialForm] = useState(emptyCredential);
+    const [sortBy, setSortBy] = useState<CredentialSortField>("platform");
+    const [sortDir, setSortDir] = useState<SortDirection>("asc");
+    const [page, setPage] = useState(1);
+    const [pageSize, setPageSize] = useState(10);
 
     const { data: credentials = [], isLoading, isError } = useQuery({
         queryKey: ["credentials"],
@@ -170,6 +168,21 @@ export default function Credentials() {
         });
     }, [branchFilter, credentials, search, toolFilter]);
 
+    const sortedCredentials = useMemo(() => {
+        const direction = sortDir === "asc" ? 1 : -1;
+
+        return [...filteredCredentials].sort((first, second) => {
+            const firstValue = sortBy === "updatedAt" ? first.updatedAt || "" : first[sortBy] || "";
+            const secondValue = sortBy === "updatedAt" ? second.updatedAt || "" : second[sortBy] || "";
+
+            return firstValue.localeCompare(secondValue) * direction;
+        });
+    }, [filteredCredentials, sortBy, sortDir]);
+
+    const totalPages = Math.max(1, Math.ceil(sortedCredentials.length / pageSize));
+    const safePage = Math.min(page, totalPages);
+    const paginatedCredentials = sortedCredentials.slice((safePage - 1) * pageSize, safePage * pageSize);
+
     const branchOptions = useMemo(
         () => ["All branches", ...Array.from(new Set(credentials.map((credential) => credential.company))).sort()],
         [credentials]
@@ -198,6 +211,18 @@ export default function Credentials() {
     const closeModal = () => {
         setIsAddModalOpen(false);
         setCredentialForm(emptyCredential);
+    };
+
+    const changeSort = (field: string) => {
+        const nextField = field as CredentialSortField;
+
+        if (sortBy === nextField) {
+            setSortDir((direction) => (direction === "asc" ? "desc" : "asc"));
+            return;
+        }
+
+        setSortBy(nextField);
+        setSortDir("asc");
     };
 
     const addCredential = (event: FormEvent<HTMLFormElement>) => {
@@ -241,6 +266,14 @@ export default function Credentials() {
 
         archiveCredentialMutation.mutate(deleteTarget._id, { onSuccess: closeDeletePrompt });
     };
+
+    useEffect(() => {
+        setPage(1);
+    }, [branchFilter, search, toolFilter]);
+
+    useEffect(() => {
+        setPage((currentPage) => Math.min(currentPage, totalPages));
+    }, [totalPages]);
 
     return (
         <AdminLayout>
@@ -343,11 +376,11 @@ export default function Credentials() {
                                     <th className="w-[4%] px-3 py-3">
                                         <input className="size-4 rounded border-white/20 bg-transparent accent-[#842cff]" type="checkbox" aria-label="Select all credentials" />
                                     </th>
-                                    <th className="w-[25%] px-3 py-3"><SortHeader>Platform</SortHeader></th>
-                                    <th className="w-[23%] px-3 py-3"><SortHeader>Username</SortHeader></th>
-                                    <th className="w-[21%] px-3 py-3"><SortHeader>Password</SortHeader></th>
-                                    <th className="w-[11%] px-3 py-3"><SortHeader>Status</SortHeader></th>
-                                    <th className="w-[11%] px-3 py-3"><SortHeader>Updated</SortHeader></th>
+                                    <th className="w-[25%] px-3 py-3"><DataTableSortHeader field="platform" sortBy={sortBy} sortDir={sortDir} onSort={changeSort}>Platform</DataTableSortHeader></th>
+                                    <th className="w-[23%] px-3 py-3"><DataTableSortHeader field="username" sortBy={sortBy} sortDir={sortDir} onSort={changeSort}>Username</DataTableSortHeader></th>
+                                    <th className="w-[21%] px-3 py-3"><DataTableSortHeader field="password" sortBy={sortBy} sortDir={sortDir} onSort={changeSort}>Password</DataTableSortHeader></th>
+                                    <th className="w-[11%] px-3 py-3"><DataTableSortHeader field="status" sortBy={sortBy} sortDir={sortDir} onSort={changeSort}>Status</DataTableSortHeader></th>
+                                    <th className="w-[11%] px-3 py-3"><DataTableSortHeader field="updatedAt" sortBy={sortBy} sortDir={sortDir} onSort={changeSort}>Updated</DataTableSortHeader></th>
                                     <th className="w-[5%] px-3 py-3 text-center">Actions</th>
                                 </tr>
                             </thead>
@@ -362,7 +395,7 @@ export default function Credentials() {
                                         <td className="px-4 py-5 text-sm text-red-200" colSpan={7}>Unable to load credentials.</td>
                                     </tr>
                                 )}
-                                {filteredCredentials.map((credential) => {
+                                {paginatedCredentials.map((credential) => {
                                     const isPasswordVisible = visiblePasswords.has(credential._id);
 
                                     return (
@@ -446,25 +479,16 @@ export default function Credentials() {
                         </table>
                     </div>
 
-                    <div className="flex min-h-14 flex-wrap items-center justify-between gap-3 border-t border-white/10 px-4 py-3">
-                        <p className="text-xs text-white/45">Showing 1 to {filteredCredentials.length} of {credentials.length} entries</p>
-                        <div className="flex items-center gap-2">
-                            {[1, 2, 3].map((page) => (
-                                <button
-                                    key={page}
-                                    className={[
-                                        "flex size-8 items-center justify-center rounded-lg border text-sm font-semibold transition",
-                                        page === 1
-                                            ? "border-[#842cff] bg-[#842cff] text-white"
-                                            : "border-white/10 bg-white/[0.035] text-white/60 hover:bg-white/10 hover:text-white",
-                                    ].join(" ")}
-                                    type="button"
-                                >
-                                    {page}
-                                </button>
-                            ))}
-                        </div>
-                    </div>
+                    <DataTablePagination
+                        totalItems={sortedCredentials.length}
+                        page={page}
+                        pageSize={pageSize}
+                        onPageChange={setPage}
+                        onPageSizeChange={(nextPageSize) => {
+                            setPageSize(nextPageSize);
+                            setPage(1);
+                        }}
+                    />
                 </section>
 
                 {isAddModalOpen && (

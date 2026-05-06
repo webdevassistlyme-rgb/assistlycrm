@@ -6,6 +6,7 @@ export type NoticeDocument = {
   message: string;
   severity: "Info" | "Warning" | "Critical";
   issuedBy: string;
+  isRead: boolean;
 };
 
 const noticeSchema = new Schema<NoticeDocument>(
@@ -15,6 +16,7 @@ const noticeSchema = new Schema<NoticeDocument>(
     message: { type: String, required: true, trim: true },
     severity: { type: String, enum: ["Info", "Warning", "Critical"], default: "Info" },
     issuedBy: { type: String, trim: true, default: "Admin" },
+    isRead: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

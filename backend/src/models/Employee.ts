@@ -9,6 +9,7 @@ export type EmployeeDocument = {
   team: string;
   email: string;
   phone: string;
+  salary: number;
   status: EmployeeStatus;
 };
 
@@ -20,6 +21,7 @@ const employeeSchema = new Schema<EmployeeDocument>(
     team: { type: String, required: true, default: "Unassigned", trim: true },
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
     phone: { type: String, trim: true, default: "" },
+    salary: { type: Number, min: 0, default: 0 },
     status: {
       type: String,
       enum: ["Active", "Training", "Paused", "Archived"],

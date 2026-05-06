@@ -1,7 +1,9 @@
 import { useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FiBell, FiChevronDown, FiMessageCircle, FiPlus, FiSearch } from "react-icons/fi";
 import { Link, useLocation } from "react-router";
 import { getAuthUser } from "../../api/auth";
+import { getEmployeeNotices, markEmployeeNoticeRead, markEmployeeNoticesRead } from "../../api/notices";
 
 const pageTitles: Record<string, string> = {
     "/dashboard": "Dashboard",
@@ -31,6 +33,23 @@ export default function Navbar() {
         return savedDepartment || primaryDepartment || "Sales";
     });
     const [isDepartmentOpen, setIsDepartmentOpen] = useState(false);
+    const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+    const queryClient = useQueryClient();
+    const employeeId = authUser?.userType === "employee" ? authUser.user._id : "";
+    const { data: notices = [] } = useQuery({
+        queryKey: ["employee-notices", employeeId],
+        queryFn: () => getEmployeeNotices(employeeId),
+        enabled: Boolean(employeeId),
+    });
+    const unreadCount = notices.filter((notice) => !notice.isRead).length;
+    const markNoticeReadMutation = useMutation({
+        mutationFn: (noticeId: string) => markEmployeeNoticeRead(employeeId, noticeId),
+        onSuccess: () => queryClient.invalidateQueries({ queryKey: ["employee-notices", employeeId] }),
+    });
+    const markAllNoticesReadMutation = useMutation({
+        mutationFn: () => markEmployeeNoticesRead(employeeId),
+        onSuccess: () => queryClient.invalidateQueries({ queryKey: ["employee-notices", employeeId] }),
+    });
 
     const handleDepartmentChange = (department: string) => {
         setActiveDepartment(department);
@@ -64,14 +83,73 @@ export default function Navbar() {
                         <FiPlus className="size-5" aria-hidden="true" />
                     </button>
 
-                    <button
-                        className="relative flex size-11 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/[0.06] text-white/70 transition hover:bg-white/10 hover:text-white focus:outline-none focus:ring-2 focus:ring-[#842cff]/60"
-                        type="button"
-                        aria-label="Notifications"
-                    >
-                        <FiBell className="size-5" aria-hidden="true" />
-                        <span className="absolute right-2.5 top-2.5 size-2 rounded-full bg-[#842cff]" />
-                    </button>
+                    <div className="relative">
+                        <button
+                            className={[
+                                "relative flex size-11 shrink-0 items-center justify-center rounded-lg border text-white/70 transition hover:bg-white/10 hover:text-white focus:outline-none focus:ring-2 focus:ring-[#842cff]/60",
+                                isNotificationsOpen ? "border-[#842cff]/70 bg-white/[0.08]" : "border-white/10 bg-white/[0.06]",
+                            ].join(" ")}
+                            type="button"
+                            aria-label="Notifications"
+                            aria-expanded={isNotificationsOpen}
+                            onClick={() => setIsNotificationsOpen((isOpen) => !isOpen)}
+                        >
+                            <FiBell className="size-5" aria-hidden="true" />
+                            {unreadCount > 0 && (
+                                <span className="absolute right-1.5 top-1.5 min-w-5 rounded-full bg-[#842cff] px-1.5 py-0.5 text-[0.65rem] font-bold leading-none text-white">
+                                    {unreadCount > 9 ? "9+" : unreadCount}
+                                </span>
+                            )}
+                        </button>
+                        {isNotificationsOpen && (
+                            <div className="absolute right-0 top-[calc(100%+0.5rem)] z-40 w-80 overflow-hidden rounded-lg border border-white/10 bg-[#11141d] shadow-2xl shadow-black/45">
+                                <div className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
+                                    <div>
+                                        <p className="text-xs font-medium uppercase tracking-[0.14em] text-white/35">Notifications</p>
+                                        <p className="mt-1 text-sm font-semibold text-white">{unreadCount} unread</p>
+                                    </div>
+                                    {unreadCount > 0 && (
+                                        <button
+                                            className="h-8 rounded-lg border border-white/10 bg-white/[0.05] px-3 text-xs font-semibold text-white/65 transition hover:bg-white/10 hover:text-white"
+                                            type="button"
+                                            onClick={() => markAllNoticesReadMutation.mutate()}
+                                        >
+                                            Mark all read
+                                        </button>
+                                    )}
+                                </div>
+                                <div className="content-scroll max-h-96 overflow-y-auto p-2">
+                                    {notices.length === 0 && (
+                                        <p className="rounded-lg border border-white/10 bg-white/[0.035] p-4 text-sm text-white/45">No notifications yet.</p>
+                                    )}
+                                    {notices.map((notice) => (
+                                        <button
+                                            key={notice._id}
+                                            className={[
+                                                "w-full rounded-lg border p-3 text-left transition",
+                                                notice.isRead
+                                                    ? "border-white/10 bg-white/[0.025] text-white/55 hover:bg-white/[0.05]"
+                                                    : "border-[#842cff]/30 bg-[#842cff]/12 text-white hover:bg-[#842cff]/18",
+                                            ].join(" ")}
+                                            type="button"
+                                            onClick={() => {
+                                                if (!notice.isRead) markNoticeReadMutation.mutate(notice._id);
+                                            }}
+                                        >
+                                            <div className="flex items-start justify-between gap-3">
+                                                <p className="line-clamp-1 text-sm font-semibold">{notice.title}</p>
+                                                {!notice.isRead && <span className="mt-1 size-2 shrink-0 rounded-full bg-[#9b5cff]" />}
+                                            </div>
+                                            <p className="mt-1 line-clamp-2 text-xs leading-5 text-white/55">{notice.message}</p>
+                                            <p className="mt-2 text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-white/35">
+                                                {notice.severity} · {new Date(notice.createdAt).toLocaleString()}
+                                            </p>
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </div>
 
                     <Link
                         className="flex size-11 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/[0.06] text-white/70 transition hover:bg-white/10 hover:text-white focus:outline-none focus:ring-2 focus:ring-[#842cff]/60"

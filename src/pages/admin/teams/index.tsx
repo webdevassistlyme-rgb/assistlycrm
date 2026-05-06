@@ -1,5 +1,5 @@
 import type { FormEvent } from "react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FiCheck, FiChevronDown, FiEdit2, FiPlus, FiSearch, FiUserPlus, FiUsers, FiX } from "react-icons/fi";
 import AdminLayout from "../adminLayout";
@@ -12,8 +12,10 @@ import {
     type TeamInput,
     type TeamStatus,
 } from "../../../api/teams";
+import { DataTablePagination, DataTableSortHeader } from "../../../components/admin/DataTable";
 
 const teamStatuses: TeamStatus[] = ["Active", "Review", "Paused", "Archived"];
+
 
 export default function AdminTeams() {
     const leadButtonRef = useRef<HTMLButtonElement>(null);
@@ -34,6 +36,10 @@ export default function AdminTeams() {
     const [isMembersDropdownOpen, setIsMembersDropdownOpen] = useState(false);
     const [leadSearch, setLeadSearch] = useState("");
     const [memberSearch, setMemberSearch] = useState("");
+    const [page, setPage] = useState(1);
+    const [pageSize, setPageSize] = useState(10);
+    const [sortBy, setSortBy] = useState("name");
+    const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
     const [newTeam, setNewTeam] = useState<TeamInput>({
         name: "",
         lead: null,
@@ -43,6 +49,35 @@ export default function AdminTeams() {
     });
 
     const activeEmployees = employees.filter((employee) => employee.status !== "Archived");
+    const activeEmployeeIds = new Set(activeEmployees.map((employee) => employee._id));
+    const getActiveTeamMembers = (team: Team) => team.members.filter((member) => activeEmployeeIds.has(member._id));
+    const teamStats = [
+        ["Teams", teams.length.toString()],
+        ["Agents", teams.reduce((total, team) => total + getActiveTeamMembers(team).length, 0).toString()],
+        ["Active Leads", teams.reduce((total, team) => total + team.activeLeads, 0).toString()],
+    ];
+    const sortedTeams = [...teams].sort((first, second) => {
+        const firstMembers = getActiveTeamMembers(first).length;
+        const secondMembers = getActiveTeamMembers(second).length;
+        const values: Record<string, [string | number, string | number]> = {
+            name: [first.name, second.name],
+            lead: [first.lead?.name || "", second.lead?.name || ""],
+            members: [firstMembers, secondMembers],
+            activeLeads: [first.activeLeads, second.activeLeads],
+            status: [first.status, second.status],
+        };
+        const [firstValue, secondValue] = values[sortBy] || values.name;
+        const direction = sortDir === "asc" ? 1 : -1;
+
+        if (typeof firstValue === "number" && typeof secondValue === "number") {
+            return (firstValue - secondValue) * direction;
+        }
+
+        return String(firstValue).localeCompare(String(secondValue)) * direction;
+    });
+    const totalPages = Math.max(1, Math.ceil(sortedTeams.length / pageSize));
+    const safePage = Math.min(page, totalPages);
+    const paginatedTeams = sortedTeams.slice((safePage - 1) * pageSize, safePage * pageSize);
     const selectedLead = activeEmployees.find((employee) => employee._id === newTeam.lead);
     const selectedMembers = activeEmployees.filter((employee) => newTeam.members.includes(employee._id));
     const filteredLeadOptions = activeEmployees.filter((agent) =>
@@ -159,13 +194,42 @@ export default function AdminTeams() {
         };
     };
 
+    const changeSort = (field: string) => {
+        setSortBy((current) => {
+            if (current === field) {
+                setSortDir((direction) => (direction === "asc" ? "desc" : "asc"));
+                return current;
+            }
+
+            setSortDir("asc");
+            return field;
+        });
+        setPage(1);
+    };
+
+    useEffect(() => {
+        setPage((currentPage) => Math.min(currentPage, totalPages));
+    }, [totalPages]);
+
     return (
         <AdminLayout>
-            <section className="min-h-[calc(100vh-8.5rem)] rounded-lg border border-white/10 bg-[#090b13]/80">
+            <section className="flex min-h-[calc(100vh-8.5rem)] flex-col rounded-lg border border-white/10 bg-[#090b13]/80">
                 <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 px-5 py-4">
                     <div>
                         <p className="text-xs font-medium uppercase tracking-[0.16em] text-white/35">Admin Teams</p>
                         <h2 className="mt-1 text-xl font-semibold text-white">Teams</h2>
+                    </div>
+
+                    <div className="flex min-w-0 flex-1 flex-wrap justify-center gap-2">
+                        {teamStats.map(([label, value]) => (
+                            <span
+                                key={label}
+                                className="inline-flex h-10 min-w-[7.25rem] items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/[0.04] px-3 text-xs font-semibold text-white/55"
+                            >
+                                <span className="uppercase tracking-[0.12em]">{label}</span>
+                                <span className="text-base text-white">{value}</span>
+                            </span>
+                        ))}
                     </div>
 
                     <button
@@ -178,30 +242,17 @@ export default function AdminTeams() {
                     </button>
                 </div>
 
-                <div className="grid gap-2.5 p-4 md:grid-cols-3">
-                    {[
-                        ["Teams", teams.length.toString()],
-                        ["Agents", teams.reduce((total, team) => total + team.members.length, 0).toString()],
-                        ["Active Leads", teams.reduce((total, team) => total + team.activeLeads, 0).toString()],
-                    ].map(([label, value]) => (
-                        <div key={label} className="rounded-lg border border-white/10 bg-white/[0.04] px-3.5 py-3">
-                            <p className="text-[0.68rem] font-medium uppercase tracking-[0.12em] text-white/35">{label}</p>
-                            <p className="mt-1 text-xl font-semibold text-white">{value}</p>
-                        </div>
-                    ))}
-                </div>
-
-                <div className="px-4 pb-4">
-                    <div className="overflow-hidden rounded-lg border border-white/10">
-                        <div className="overflow-x-auto">
+                <div className="flex min-h-0 flex-1 flex-col">
+                    <div className="flex min-h-[18rem] flex-1 overflow-hidden border-t border-white/10">
+                        <div className="content-scroll min-h-0 flex-1 overflow-auto">
                             <table className="w-full min-w-[48rem] text-left">
-                                <thead className="border-b border-white/10 bg-white/[0.03]">
+                                <thead className="sticky top-0 z-10 border-b border-white/10 bg-[#10131b]">
                                     <tr className="text-xs font-semibold uppercase tracking-[0.14em] text-white/35">
-                                        <th className="px-5 py-3">Team</th>
-                                        <th className="px-5 py-3">Team Lead</th>
-                                        <th className="px-5 py-3">Agents</th>
-                                        <th className="px-5 py-3">Active Leads</th>
-                                        <th className="px-5 py-3">Status</th>
+                                        <th className="px-5 py-3"><DataTableSortHeader field="name" sortBy={sortBy} sortDir={sortDir} onSort={changeSort}>Team</DataTableSortHeader></th>
+                                        <th className="px-5 py-3"><DataTableSortHeader field="lead" sortBy={sortBy} sortDir={sortDir} onSort={changeSort}>Team Lead</DataTableSortHeader></th>
+                                        <th className="px-5 py-3"><DataTableSortHeader field="members" sortBy={sortBy} sortDir={sortDir} onSort={changeSort}>Agents</DataTableSortHeader></th>
+                                        <th className="px-5 py-3"><DataTableSortHeader field="activeLeads" sortBy={sortBy} sortDir={sortDir} onSort={changeSort}>Active Leads</DataTableSortHeader></th>
+                                        <th className="px-5 py-3"><DataTableSortHeader field="status" sortBy={sortBy} sortDir={sortDir} onSort={changeSort}>Status</DataTableSortHeader></th>
                                         <th className="px-5 py-3 text-right">Actions</th>
                                     </tr>
                                 </thead>
@@ -227,7 +278,10 @@ export default function AdminTeams() {
                                             </td>
                                         </tr>
                                     )}
-                                    {teams.map((team) => (
+                                    {paginatedTeams.map((team) => {
+                                        const activeTeamMembers = getActiveTeamMembers(team);
+
+                                        return (
                                         <tr key={team.name} className="text-sm transition hover:bg-white/[0.04]">
                                             <td className="px-5 py-4">
                                                 <div className="flex items-center gap-3">
@@ -238,7 +292,7 @@ export default function AdminTeams() {
                                                 </div>
                                             </td>
                                             <td className="px-5 py-4 text-white/65">{team.lead?.name || "Unassigned"}</td>
-                                            <td className="px-5 py-4 text-white/65">{team.members.length}</td>
+                                            <td className="px-5 py-4 text-white/65">{activeTeamMembers.length}</td>
                                             <td className="px-5 py-4 text-white/65">{team.activeLeads}</td>
                                             <td className="px-5 py-4">
                                                 <span className="rounded-md border border-[#842cff]/35 bg-[#842cff]/10 px-2 py-1 text-xs font-semibold text-[#b994ff]">
@@ -266,11 +320,22 @@ export default function AdminTeams() {
                                                 </div>
                                             </td>
                                         </tr>
-                                    ))}
+                                        );
+                                    })}
                                 </tbody>
                             </table>
                         </div>
                     </div>
+                    <DataTablePagination
+                        totalItems={teams.length}
+                        page={page}
+                        pageSize={pageSize}
+                        onPageChange={setPage}
+                        onPageSizeChange={(nextPageSize) => {
+                            setPageSize(nextPageSize);
+                            setPage(1);
+                        }}
+                    />
                 </div>
             </section>
 

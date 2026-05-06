@@ -9,7 +9,9 @@
   scrollbar-color: transparent transparent;
 }
 
-.content-scroll.is-scrolling {
+.content-scroll.is-scrolling,
+.content-scroll:hover,
+.content-scroll:focus-within {
   scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
 }
 
@@ -33,7 +35,9 @@
   background: transparent;
 }
 
-.content-scroll.is-scrolling::-webkit-scrollbar-thumb {
+.content-scroll.is-scrolling::-webkit-scrollbar-thumb,
+.content-scroll:hover::-webkit-scrollbar-thumb,
+.content-scroll:focus-within::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, 0.18);
 }
 
@@ -63,4 +67,27 @@
 
 .modal-panel-enter {
   animation: modal-panel-in 180ms ease-out both;
+}
+
+@media print {
+  body * {
+    visibility: hidden !important;
+  }
+
+  .payslip-print,
+  .payslip-print * {
+    visibility: visible !important;
+  }
+
+  .payslip-print {
+    position: fixed !important;
+    inset: 0 !important;
+    width: 100% !important;
+    min-height: 100vh !important;
+    box-shadow: none !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
 }

@@ -1,8 +1,10 @@
 import type { ReactNode } from "react";
 import { useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Link, NavLink } from "react-router";
 import { clearAuthUser } from "../../../api/auth";
 import type { FeatureKey } from "../../../api/features";
+import { getRecentNotices } from "../../../api/notices";
 import { useFeatureFlags } from "../../../hooks/useFeatureFlags";
 import {
     FiBarChart2,
@@ -44,8 +46,13 @@ const adminNavItems = [
 
 export default function AdminLayout({ children }: Props) {
     const [isScrolling, setIsScrolling] = useState(false);
+    const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
     const scrollTimer = useRef<number | undefined>(undefined);
     const { isEnabled } = useFeatureFlags();
+    const { data: notices = [] } = useQuery({
+        queryKey: ["recent-notices"],
+        queryFn: getRecentNotices,
+    });
     const visibleNavItems = adminNavItems.filter((item) => isEnabled(item.feature as FeatureKey, "admin"));
 
     const handleScroll = () => {
@@ -123,14 +130,57 @@ export default function AdminLayout({ children }: Props) {
                                 />
                             </label>
 
-                            <button
-                                className="relative flex size-11 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/[0.06] text-white/70 transition hover:bg-white/10 hover:text-white focus:outline-none focus:ring-2 focus:ring-[#842cff]/60"
-                                type="button"
-                                aria-label="Notifications"
-                            >
-                                <FiBell className="size-5" aria-hidden="true" />
-                                <span className="absolute right-2.5 top-2.5 size-2 rounded-full bg-[#842cff]" />
-                            </button>
+                            <div className="relative">
+                                <button
+                                    className={[
+                                        "relative flex size-11 shrink-0 items-center justify-center rounded-lg border text-white/70 transition hover:bg-white/10 hover:text-white focus:outline-none focus:ring-2 focus:ring-[#842cff]/60",
+                                        isNotificationsOpen ? "border-[#842cff]/70 bg-white/[0.08]" : "border-white/10 bg-white/[0.06]",
+                                    ].join(" ")}
+                                    type="button"
+                                    aria-label="Notifications"
+                                    aria-expanded={isNotificationsOpen}
+                                    onClick={() => setIsNotificationsOpen((isOpen) => !isOpen)}
+                                >
+                                    <FiBell className="size-5" aria-hidden="true" />
+                                    {notices.length > 0 && <span className="absolute right-2.5 top-2.5 size-2 rounded-full bg-[#842cff]" />}
+                                </button>
+                                {isNotificationsOpen && (
+                                    <div className="absolute right-0 top-[calc(100%+0.5rem)] z-40 w-80 overflow-hidden rounded-lg border border-white/10 bg-[#11141d] shadow-2xl shadow-black/45">
+                                        <div className="border-b border-white/10 px-4 py-3">
+                                            <p className="text-xs font-medium uppercase tracking-[0.14em] text-white/35">Recent Notices</p>
+                                            <p className="mt-1 text-sm font-semibold text-white">{notices.length} latest records</p>
+                                        </div>
+                                        <div className="content-scroll max-h-96 overflow-y-auto p-2">
+                                            {notices.length === 0 && (
+                                                <p className="rounded-lg border border-white/10 bg-white/[0.035] p-4 text-sm text-white/45">No notices issued yet.</p>
+                                            )}
+                                            {notices.map((notice) => {
+                                                const employeeName = typeof notice.employee === "string" ? "Employee" : notice.employee.name;
+
+                                                return (
+                                                    <Link
+                                                        key={notice._id}
+                                                        className="block rounded-lg border border-white/10 bg-white/[0.025] p-3 text-left transition hover:bg-white/[0.055]"
+                                                        to="/admin/employees"
+                                                        onClick={() => setIsNotificationsOpen(false)}
+                                                    >
+                                                        <div className="flex items-start justify-between gap-3">
+                                                            <p className="line-clamp-1 text-sm font-semibold text-white">{notice.title}</p>
+                                                            <span className="rounded-md bg-[#842cff]/15 px-2 py-1 text-[0.65rem] font-bold uppercase tracking-[0.1em] text-[#d8c8ff]">
+                                                                {notice.severity}
+                                                            </span>
+                                                        </div>
+                                                        <p className="mt-1 line-clamp-2 text-xs leading-5 text-white/55">{notice.message}</p>
+                                                        <p className="mt-2 text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-white/35">
+                                                            {employeeName} · {new Date(notice.createdAt).toLocaleString()}
+                                                        </p>
+                                                    </Link>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
 
                             <Link
                                 className="flex size-11 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/[0.06] text-white/70 transition hover:bg-white/10 hover:text-white focus:outline-none focus:ring-2 focus:ring-[#842cff]/60"

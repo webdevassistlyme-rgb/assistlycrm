@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
     FiChevronLeft,
+    FiChevronDown,
     FiChevronRight,
     FiEdit2,
     FiExternalLink,
@@ -33,14 +34,15 @@ import {
     type KnowledgeBaseInput,
     type KnowledgeBaseSuggestion,
 } from "../../../api/knowledgeBase";
+import { getProductCategories } from "../../../api/productCategories";
 import { backendOrigin } from "../../../lib/backendUrl";
 
 const emptyProduct: KnowledgeBaseInput = {
     entryType: "Product",
     title: "",
+    category: "",
     description: "",
     scope: "",
-    price: "",
     photoUrls: [],
     documents: [],
     question: "",
@@ -57,9 +59,9 @@ function entryToInput(entry: KnowledgeBaseEntry): KnowledgeBaseInput {
     return {
         entryType: entry.entryType,
         title: entry.title,
+        category: entry.category || "",
         description: entry.description,
         scope: entry.scope,
-        price: entry.price,
         photoUrls: entry.photoUrls,
         documents: entry.documents || [],
         question: entry.question,
@@ -87,6 +89,8 @@ export default function AdminKnowledgeBase() {
     const [pageSize, setPageSize] = useState(10);
     const [productForm, setProductForm] = useState<KnowledgeBaseInput>(emptyProduct);
     const [faqForm, setFaqForm] = useState<KnowledgeBaseInput>(emptyFaq);
+    const [isCustomProductCategory, setIsCustomProductCategory] = useState(false);
+    const [isProductCategoryDropdownOpen, setIsProductCategoryDropdownOpen] = useState(false);
 
     const { data: entries = [], isLoading, isError } = useQuery({
         queryKey: ["knowledge-base"],
@@ -96,6 +100,10 @@ export default function AdminKnowledgeBase() {
     const { data: pendingSuggestions = [] } = useQuery({
         queryKey: ["knowledge-base-suggestions", "Pending"],
         queryFn: () => getKnowledgeBaseSuggestions({ status: "Pending" }),
+    });
+    const { data: productCategories = [] } = useQuery({
+        queryKey: ["product-categories"],
+        queryFn: getProductCategories,
     });
 
     const activeEntries = useMemo(
@@ -111,6 +119,14 @@ export default function AdminKnowledgeBase() {
         [activeEntries, pageSize, safePage]
     );
     const currentForm = activeTab === "Product" ? productForm : faqForm;
+    const productCategoryNames = useMemo(
+        () => new Set(productCategories.map((category) => category.name)),
+        [productCategories]
+    );
+    const categorySelectValue = isCustomProductCategory ? "__custom__" : productForm.category;
+    const selectedCategoryLabel = isCustomProductCategory
+        ? "Custom category"
+        : productForm.category || "Select category";
     const visibleSuggestions = useMemo(
         () =>
             pendingSuggestions.filter((suggestion) => {
@@ -205,6 +221,8 @@ export default function AdminKnowledgeBase() {
         setEditingId(null);
         setProductForm(emptyProduct);
         setFaqForm(emptyFaq);
+        setIsCustomProductCategory(false);
+        setIsProductCategoryDropdownOpen(false);
     };
 
     const closeModal = () => {
@@ -243,8 +261,12 @@ export default function AdminKnowledgeBase() {
         setIsEntryModalOpen(true);
 
         if (entry.entryType === "Product") {
+            setIsCustomProductCategory(Boolean(entry.category && !productCategoryNames.has(entry.category)));
+            setIsProductCategoryDropdownOpen(false);
             setProductForm(entryToInput(entry));
         } else {
+            setIsCustomProductCategory(false);
+            setIsProductCategoryDropdownOpen(false);
             setFaqForm(entryToInput(entry));
         }
     };
@@ -254,6 +276,8 @@ export default function AdminKnowledgeBase() {
         setEditingId(null);
         setProductForm(emptyProduct);
         setFaqForm(emptyFaq);
+        setIsCustomProductCategory(false);
+        setIsProductCategoryDropdownOpen(false);
         setIsEntryModalOpen(true);
     };
 
@@ -290,7 +314,7 @@ export default function AdminKnowledgeBase() {
                 <div className="flex flex-wrap items-end justify-between gap-4 border-b border-white/10 pb-4">
                     <div>
                         <h2 className="text-xl font-semibold text-white">Knowledge Base</h2>
-                        <p className="mt-1 text-sm text-white/45">Products, scopes, pricing, photos, and FAQ for agents.</p>
+                        <p className="mt-1 text-sm text-white/45">Products, categories, scopes, photos, and FAQ for agents.</p>
                     </div>
                     <div className="flex flex-wrap gap-2">
                         {(["Product", "FAQ"] as const).map((tab) => (
@@ -362,10 +386,10 @@ export default function AdminKnowledgeBase() {
                                     <thead className="sticky top-0 z-10 border-b border-white/10 bg-[#0d1018] text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-white/35">
                                         {activeTab === "Product" ? (
                                             <tr>
-                                                <th className="w-[20%] px-4 py-3">Product</th>
+                                                <th className="w-[20%] px-4 py-3">Title</th>
+                                                <th className="w-[14%] px-4 py-3">Category</th>
                                                 <th className="w-[22%] px-4 py-3">Description</th>
-                                                <th className="w-[20%] px-4 py-3">Scope</th>
-                                                <th className="w-[10%] px-4 py-3">Price</th>
+                                                <th className="w-[16%] px-4 py-3">Scope</th>
                                                 <th className="w-[8%] px-4 py-3">Photos</th>
                                                 <th className="w-[8%] px-4 py-3">Docs</th>
                                                 <th className="w-[12%] px-4 py-3 text-right">Actions</th>
@@ -404,12 +428,14 @@ export default function AdminKnowledgeBase() {
                                                         </div>
                                                     </td>
                                                     <td className="px-4 py-4 align-top text-white/60">
+                                                        <p className="line-clamp-2">{entry.category || "No category"}</p>
+                                                    </td>
+                                                    <td className="px-4 py-4 align-top text-white/60">
                                                         <p className="line-clamp-2">{entry.description || "No description"}</p>
                                                     </td>
                                                     <td className="px-4 py-4 align-top text-white/60">
                                                         <p className="line-clamp-2">{entry.scope || "No scope"}</p>
                                                     </td>
-                                                    <td className="px-4 py-4 align-top font-semibold text-white">{entry.price || "No price"}</td>
                                                     <td className="px-4 py-4 align-top text-white/65">{entry.photoUrls.length}</td>
                                                     <td className="px-4 py-4 align-top">
                                                         {entry.documents?.length ? (
@@ -610,9 +636,9 @@ export default function AdminKnowledgeBase() {
                                                         {activeTab === "Product" ? (
                                                             <>
                                                                 {suggestion.title && <p><span className="font-semibold text-white/80">Title:</span> {suggestion.title}</p>}
+                                                                {suggestion.category && <p><span className="font-semibold text-white/80">Category:</span> {suggestion.category}</p>}
                                                                 {suggestion.description && <p><span className="font-semibold text-white/80">Description:</span> {suggestion.description}</p>}
                                                                 {suggestion.scope && <p><span className="font-semibold text-white/80">Scope:</span> {suggestion.scope}</p>}
-                                                                {suggestion.price && <p><span className="font-semibold text-white/80">Price:</span> {suggestion.price}</p>}
                                                             </>
                                                         ) : (
                                                             <>
@@ -678,7 +704,7 @@ export default function AdminKnowledgeBase() {
                                 {activeTab === "Product" ? (
                                     <div className="grid gap-4">
                                         <label>
-                                            <span className="text-xs font-medium uppercase tracking-[0.14em] text-white/35">Product</span>
+                                            <span className="text-xs font-medium uppercase tracking-[0.14em] text-white/35">Title</span>
                                             <input
                                                 className="mt-2 h-11 w-full rounded-lg border border-white/10 bg-black/20 px-3 text-sm font-semibold text-white outline-none transition placeholder:text-white/30 focus:border-[#842cff] focus:ring-2 focus:ring-[#842cff]/20"
                                                 value={productForm.title}
@@ -686,6 +712,97 @@ export default function AdminKnowledgeBase() {
                                                 placeholder="Website package, CRM setup, monthly support..."
                                             />
                                         </label>
+                                        <div className="relative">
+                                            <span className="text-xs font-medium uppercase tracking-[0.14em] text-white/35">Category</span>
+                                            <button
+                                                className={[
+                                                    "mt-2 flex h-11 w-full items-center justify-between gap-3 rounded-lg border bg-black/20 px-3 text-left text-sm font-semibold outline-none transition",
+                                                    isProductCategoryDropdownOpen
+                                                        ? "border-[#842cff] text-white ring-2 ring-[#842cff]/20"
+                                                        : "border-white/10 text-white hover:border-white/20 hover:bg-white/[0.04]",
+                                                ].join(" ")}
+                                                type="button"
+                                                onClick={() => setIsProductCategoryDropdownOpen((isOpen) => !isOpen)}
+                                                aria-expanded={isProductCategoryDropdownOpen}
+                                            >
+                                                <span className={productForm.category || isCustomProductCategory ? "truncate text-white" : "truncate text-white/45"}>
+                                                    {selectedCategoryLabel}
+                                                </span>
+                                                <FiChevronDown
+                                                    className={[
+                                                        "size-4 shrink-0 text-white/45 transition",
+                                                        isProductCategoryDropdownOpen ? "rotate-180 text-white/70" : "",
+                                                    ].join(" ")}
+                                                    aria-hidden="true"
+                                                />
+                                            </button>
+                                            {isProductCategoryDropdownOpen && (
+                                                <div className="absolute left-0 right-0 top-[4.55rem] z-50 overflow-hidden rounded-lg border border-white/10 bg-[#0d1018] py-1 shadow-2xl shadow-black/50">
+                                                    <button
+                                                        className={[
+                                                            "flex h-10 w-full items-center px-3 text-left text-sm font-semibold transition",
+                                                            !categorySelectValue
+                                                                ? "bg-[#842cff]/25 text-white"
+                                                                : "text-white/65 hover:bg-white/[0.06] hover:text-white",
+                                                        ].join(" ")}
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setIsCustomProductCategory(false);
+                                                            setProductForm((form) => ({ ...form, category: "" }));
+                                                            setIsProductCategoryDropdownOpen(false);
+                                                        }}
+                                                    >
+                                                        Select category
+                                                    </button>
+                                                    {productCategories.map((category) => (
+                                                        <button
+                                                            key={category._id}
+                                                            className={[
+                                                                "flex h-10 w-full items-center px-3 text-left text-sm font-semibold transition",
+                                                                !isCustomProductCategory && productForm.category === category.name
+                                                                    ? "bg-[#842cff]/25 text-white"
+                                                                    : "text-white/75 hover:bg-white/[0.06] hover:text-white",
+                                                            ].join(" ")}
+                                                            type="button"
+                                                            onClick={() => {
+                                                                setIsCustomProductCategory(false);
+                                                                setProductForm((form) => ({ ...form, category: category.name }));
+                                                                setIsProductCategoryDropdownOpen(false);
+                                                            }}
+                                                        >
+                                                            {category.name}
+                                                        </button>
+                                                    ))}
+                                                    <button
+                                                        className={[
+                                                            "flex h-10 w-full items-center border-t border-white/10 px-3 text-left text-sm font-semibold transition",
+                                                            isCustomProductCategory
+                                                                ? "bg-[#842cff]/25 text-white"
+                                                                : "text-[#d8c8ff] hover:bg-[#842cff]/15 hover:text-white",
+                                                        ].join(" ")}
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setIsCustomProductCategory(true);
+                                                            setProductForm((form) => ({ ...form, category: "" }));
+                                                            setIsProductCategoryDropdownOpen(false);
+                                                        }}
+                                                    >
+                                                        Custom category
+                                                    </button>
+                                                </div>
+                                            )}
+                                        </div>
+                                        {isCustomProductCategory && (
+                                            <label>
+                                                <span className="text-xs font-medium uppercase tracking-[0.14em] text-white/35">Custom Category</span>
+                                                <input
+                                                    className="mt-2 h-11 w-full rounded-lg border border-white/10 bg-black/20 px-3 text-sm font-semibold text-white outline-none transition placeholder:text-white/30 focus:border-[#842cff] focus:ring-2 focus:ring-[#842cff]/20"
+                                                    value={productForm.category}
+                                                    onChange={(event) => setProductForm((form) => ({ ...form, category: event.target.value }))}
+                                                    placeholder="Type category name"
+                                                />
+                                            </label>
+                                        )}
                                         <label>
                                             <span className="text-xs font-medium uppercase tracking-[0.14em] text-white/35">Description</span>
                                             <textarea
@@ -702,15 +819,6 @@ export default function AdminKnowledgeBase() {
                                                 value={productForm.scope}
                                                 onChange={(event) => setProductForm((form) => ({ ...form, scope: event.target.value }))}
                                                 placeholder="Deliverables, timeline, inclusions, exclusions."
-                                            />
-                                        </label>
-                                        <label>
-                                            <span className="text-xs font-medium uppercase tracking-[0.14em] text-white/35">Price</span>
-                                            <input
-                                                className="mt-2 h-11 w-full rounded-lg border border-white/10 bg-black/20 px-3 text-sm font-semibold text-white outline-none transition placeholder:text-white/30 focus:border-[#842cff] focus:ring-2 focus:ring-[#842cff]/20"
-                                                value={productForm.price}
-                                                onChange={(event) => setProductForm((form) => ({ ...form, price: event.target.value }))}
-                                                placeholder="$999 setup + $199/mo"
                                             />
                                         </label>
                                         <label>

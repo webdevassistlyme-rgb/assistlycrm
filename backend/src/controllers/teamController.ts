@@ -4,6 +4,10 @@ import { Team } from "../models/Team";
 
 const populateTeam = ["lead", "members"];
 
+type PopulatedTeamEmployee = {
+  status?: string;
+};
+
 async function syncEmployeeTeams(teamId: string, teamName: string, memberIds: string[]) {
   await Employee.updateMany({ team: teamName }, { team: "Unassigned" });
 
@@ -18,7 +22,23 @@ export async function listTeams(_request: Request, response: Response) {
   const teams = await Team.find({ status: { $ne: "Archived" } })
     .populate(populateTeam)
     .sort({ createdAt: -1 });
-  response.json(teams);
+  const normalizedTeams = teams.map((team) => {
+    const teamObject = team.toObject() as typeof team extends { toObject: () => infer T } ? T & {
+      lead: PopulatedTeamEmployee | null;
+      members: PopulatedTeamEmployee[];
+    } : never;
+    const members = Array.isArray(teamObject.members)
+      ? teamObject.members.filter((member) => member && member.status !== "Archived")
+      : [];
+
+    return {
+      ...teamObject,
+      lead: teamObject.lead && teamObject.lead.status !== "Archived" ? teamObject.lead : null,
+      members,
+    };
+  });
+
+  response.json(normalizedTeams);
 }
 
 export async function createTeam(request: Request, response: Response) {

@@ -10,6 +10,7 @@ export type Employee = {
     team: string;
     email: string;
     phone: string;
+    salary: number;
     status: EmployeeStatus;
 };
 

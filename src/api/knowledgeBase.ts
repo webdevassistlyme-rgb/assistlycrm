@@ -7,9 +7,9 @@ export type KnowledgeBaseEntry = {
     _id: string;
     entryType: KnowledgeBaseEntryType;
     title: string;
+    category: string;
     description: string;
     scope: string;
-    price: string;
     photoUrls: string[];
     documents: KnowledgeBaseDocument[];
     question: string;
@@ -41,9 +41,9 @@ export type KnowledgeBaseSuggestion = {
     entryType: KnowledgeBaseEntryType;
     comment: string;
     title: string;
+    category: string;
     description: string;
     scope: string;
-    price: string;
     question: string;
     answer: string;
     submittedById: string;
@@ -58,9 +58,9 @@ export type KnowledgeBaseSuggestionInput = {
     entryType: KnowledgeBaseEntryType;
     comment: string;
     title?: string;
+    category?: string;
     description?: string;
     scope?: string;
-    price?: string;
     question?: string;
     answer?: string;
     submittedById?: string;

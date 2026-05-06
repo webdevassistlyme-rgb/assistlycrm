@@ -8,6 +8,8 @@ import {
   listPayrollRecords,
   listPayrollStats,
   markPayrollRecordPaid,
+  restorePayrollItem,
+  restorePayrollRecord,
   runPayroll,
   updatePayrollRecord,
 } from "../controllers/payrollController";
@@ -20,7 +22,9 @@ payrollRouter.post("/records", createPayrollRecord);
 payrollRouter.put("/records/:id", updatePayrollRecord);
 payrollRouter.patch("/records/:id/paid", markPayrollRecordPaid);
 payrollRouter.patch("/records/:id/archive", archivePayrollRecord);
+payrollRouter.patch("/records/:id/restore", restorePayrollRecord);
 payrollRouter.post("/run", runPayroll);
 payrollRouter.get("/items", listPayrollItems);
 payrollRouter.post("/items", createPayrollItem);
 payrollRouter.patch("/items/:id/archive", archivePayrollItem);
+payrollRouter.patch("/items/:id/restore", restorePayrollItem);

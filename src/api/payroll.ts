@@ -17,6 +17,7 @@ export type PayrollRecord = {
     status: PayrollStatus;
     paidOn: string;
     payPeriod: string;
+    isArchived?: boolean;
     createdAt?: string;
     updatedAt?: string;
 };
@@ -29,6 +30,7 @@ export type PayrollListItem = {
     third: string;
     fourth: string;
     status: PayrollStatus;
+    isArchived?: boolean;
 };
 
 export type PayrollStats = {
@@ -53,13 +55,14 @@ export async function getPayrollRecords(params?: {
     payPeriod?: string;
     sortBy?: string;
     sortDir?: "asc" | "desc";
+    archived?: boolean;
 }) {
     const response = await api.get<PayrollRecord[]>("/payroll/records", { params });
     return response.data;
 }
 
-export async function getPayrollItems(category?: PayrollItemCategory) {
-    const response = await api.get<PayrollListItem[]>("/payroll/items", { params: { category } });
+export async function getPayrollItems(category?: PayrollItemCategory, params: { archived?: boolean } = {}) {
+    const response = await api.get<PayrollListItem[]>("/payroll/items", { params: { category, ...params } });
     return response.data;
 }
 
@@ -83,6 +86,11 @@ export async function archivePayrollRecord(id: string) {
     return response.data;
 }
 
+export async function restorePayrollRecord(id: string) {
+    const response = await api.patch<PayrollRecord>(`/payroll/records/${id}/restore`);
+    return response.data;
+}
+
 export async function runPayroll(payPeriod: string) {
     const response = await api.post<{ created: number; records: PayrollRecord[] }>("/payroll/run", { payPeriod });
     return response.data;
@@ -95,5 +103,10 @@ export async function createPayrollItem(item: PayrollItemInput) {
 
 export async function archivePayrollItem(id: string) {
     const response = await api.patch<PayrollListItem>(`/payroll/items/${id}/archive`);
+    return response.data;
+}
+
+export async function restorePayrollItem(id: string) {
+    const response = await api.patch<PayrollListItem>(`/payroll/items/${id}/restore`);
     return response.data;
 }

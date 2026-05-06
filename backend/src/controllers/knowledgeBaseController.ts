@@ -35,9 +35,9 @@ function getEntryInput(request: Request) {
   return {
     entryType,
     title: request.body.title || "",
+    category: request.body.category || "",
     description: request.body.description || "",
     scope: request.body.scope || "",
-    price: request.body.price || "",
     photoUrls: normalizePhotoUrls(request.body.photoUrls),
     documents: normalizeDocuments(request.body.documents),
     question: request.body.question || "",
@@ -55,9 +55,9 @@ function getSuggestionInput(request: Request) {
     entryType,
     comment: request.body.comment || "",
     title: request.body.title || "",
+    category: request.body.category || "",
     description: request.body.description || "",
     scope: request.body.scope || "",
-    price: request.body.price || "",
     question: request.body.question || "",
     answer: request.body.answer || "",
     submittedById: request.body.submittedById || "",
@@ -222,9 +222,9 @@ export async function createKnowledgeBaseSuggestion(request: Request, response: 
 
   const hasSuggestedChange = [
     input.title,
+    input.category,
     input.description,
     input.scope,
-    input.price,
     input.question,
     input.answer,
   ].some((value) => value.trim());
@@ -262,9 +262,9 @@ export async function approveKnowledgeBaseSuggestion(request: Request, response:
 
   if (entry.entryType === "Product") {
     if (suggestion.title.trim()) entry.title = suggestion.title;
+    if (suggestion.category.trim()) entry.category = suggestion.category;
     if (suggestion.description.trim()) entry.description = suggestion.description;
     if (suggestion.scope.trim()) entry.scope = suggestion.scope;
-    if (suggestion.price.trim()) entry.price = suggestion.price;
   } else {
     if (suggestion.question.trim()) entry.question = suggestion.question;
     if (suggestion.answer.trim()) entry.answer = suggestion.answer;

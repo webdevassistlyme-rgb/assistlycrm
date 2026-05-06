@@ -21,6 +21,7 @@ export type LeadDocument = {
   category: string;
   status: LeadStatus;
   assignedAgent: Types.ObjectId | null;
+  autoAssignedAt: Date | null;
   assignedTeam: Types.ObjectId | null;
   googlePlaceId: string;
   notes: string;
@@ -56,6 +57,7 @@ const leadSchema = new Schema<LeadDocument>(
       default: "NEW",
     },
     assignedAgent: { type: Schema.Types.ObjectId, ref: "Employee", default: null },
+    autoAssignedAt: { type: Date, default: null },
     assignedTeam: { type: Schema.Types.ObjectId, ref: "Team", default: null },
     googlePlaceId: { type: String, trim: true, default: "" },
     notes: { type: String, trim: true, default: "" },

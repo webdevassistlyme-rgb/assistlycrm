@@ -5,8 +5,10 @@ import {
   autoSearchPlacesForProduct,
   autoAssignLead,
   createLead,
+  importLeads,
   importPlacesAsLeads,
   listLeads,
+  reassignNewLeadsBatch,
   scoreLeadsByHighestPotential,
   scheduleLeadFollowUp,
   searchAndImportPlacesAsLeads,
@@ -20,6 +22,8 @@ export const leadRouter = Router();
 leadRouter.get("/", listLeads);
 leadRouter.post("/", createLead);
 leadRouter.post("/ai-score", scoreLeadsByHighestPotential);
+leadRouter.post("/import", importLeads);
+leadRouter.patch("/reassign-new", reassignNewLeadsBatch);
 leadRouter.put("/:id", updateLead);
 leadRouter.patch("/:id/archive", archiveLead);
 leadRouter.post("/:id/comments", addLeadComment);

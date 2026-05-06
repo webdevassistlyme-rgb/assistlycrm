@@ -11,7 +11,13 @@ export async function listMediaAssets(_request: Request, response: Response) {
 export async function uploadMediaAsset(request: Request, response: Response) {
   const dataUrl = String(request.body.dataUrl || "");
   const originalName = String(request.body.fileName || "media").replace(/[^a-zA-Z0-9._-]/g, "-");
+  const branch = String(request.body.branch || "").trim();
   const match = dataUrl.match(/^data:(image\/(?:png|jpe?g|webp|gif)|video\/(?:mp4|webm|ogg|quicktime));base64,(.+)$/);
+
+  if (!branch) {
+    response.status(400).json({ message: "branch is required" });
+    return;
+  }
 
   if (!match) {
     response.status(400).json({ message: "Valid image or video dataUrl is required" });
@@ -44,6 +50,7 @@ export async function uploadMediaAsset(request: Request, response: Response) {
     url: `/uploads/media/${fileName}`,
     mimeType,
     assetType,
+    branch,
     size: bytes.length,
   });
 

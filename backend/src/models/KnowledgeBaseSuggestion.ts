@@ -8,9 +8,9 @@ export type KnowledgeBaseSuggestionDocument = {
   entryType: KnowledgeBaseEntryType;
   comment: string;
   title: string;
+  category: string;
   description: string;
   scope: string;
-  price: string;
   question: string;
   answer: string;
   submittedById: string;
@@ -25,9 +25,9 @@ const knowledgeBaseSuggestionSchema = new Schema<KnowledgeBaseSuggestionDocument
     entryType: { type: String, enum: ["Product", "FAQ"], required: true },
     comment: { type: String, trim: true, default: "" },
     title: { type: String, trim: true, default: "" },
+    category: { type: String, trim: true, default: "" },
     description: { type: String, trim: true, default: "" },
     scope: { type: String, trim: true, default: "" },
-    price: { type: String, trim: true, default: "" },
     question: { type: String, trim: true, default: "" },
     answer: { type: String, trim: true, default: "" },
     submittedById: { type: String, trim: true, default: "" },

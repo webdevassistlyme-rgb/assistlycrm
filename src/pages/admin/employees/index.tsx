@@ -1,5 +1,5 @@
 import type { FormEvent } from "react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FiArchive, FiBriefcase, FiCheck, FiChevronDown, FiClock, FiEdit2, FiEye, FiMail, FiPhone, FiPlus, FiSearch, FiX } from "react-icons/fi";
 import AdminLayout from "../adminLayout";
@@ -21,8 +21,10 @@ import {
 import { getRoles } from "../../../api/roles";
 import { getEmployeeAttendance } from "../../../api/attendance";
 import { getEmployeeTransactions } from "../../../api/employeeTransactions";
+import { getSystemSettings } from "../../../api/systemSettings";
+import { formatCurrency } from "../../../lib/currency";
+import { DataTablePagination } from "../../../components/admin/DataTable";
 
-const teams = ["Sales", "Retention", "Enterprise", "Onboarding", "Renewals"];
 const fallbackRoles = ["Sales Agent", "Team Lead", "Manager", "Support Agent"];
 const statuses: EmployeeStatus[] = ["Active", "Training", "Paused", "Archived"];
 const noticeSeverities: NoticeSeverity[] = ["Info", "Warning", "Critical"];
@@ -71,6 +73,10 @@ export default function AdminEmployees() {
         queryKey: ["roles"],
         queryFn: getRoles,
     });
+    const { data: systemSettings } = useQuery({
+        queryKey: ["system-settings"],
+        queryFn: getSystemSettings,
+    });
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [modalMode, setModalMode] = useState<"add" | "edit">("add");
     const [editingEmployeeId, setEditingEmployeeId] = useState<string | null>(null);
@@ -86,6 +92,8 @@ export default function AdminEmployees() {
     const [archiveTarget, setArchiveTarget] = useState<{ employee: Employee; id: string } | null>(null);
     const [archiveStep, setArchiveStep] = useState<1 | 2>(1);
     const [openDropdown, setOpenDropdown] = useState<"role" | "status" | null>(null);
+    const [page, setPage] = useState(1);
+    const [pageSize, setPageSize] = useState(10);
     const [roleSearch, setRoleSearch] = useState("");
     const [newEmployee, setNewEmployee] = useState<EmployeeInput>({
         name: "",
@@ -94,6 +102,7 @@ export default function AdminEmployees() {
         team: "Unassigned",
         email: "",
         phone: "",
+        salary: 0,
         status: "Active",
     });
 
@@ -148,6 +157,11 @@ export default function AdminEmployees() {
         : [];
 
     const activeEmployees = employees.filter((employee) => employee.status !== "Archived");
+    const money = (value = 0) => formatCurrency(value, systemSettings?.currencyCode || "USD");
+    const activeTeamCount = new Set(activeEmployees.map((employee) => employee.team).filter(Boolean)).size;
+    const totalPages = Math.max(1, Math.ceil(activeEmployees.length / pageSize));
+    const safePage = Math.min(page, totalPages);
+    const paginatedEmployees = activeEmployees.slice((safePage - 1) * pageSize, safePage * pageSize);
     const { data: employeeNotices = [] } = useQuery({
         queryKey: ["employee-notices", viewingEmployee?._id],
         queryFn: () => getEmployeeNotices(viewingEmployee?._id || ""),
@@ -200,6 +214,7 @@ export default function AdminEmployees() {
             team: "Unassigned",
             email: "",
             phone: "",
+            salary: 0,
             status: "Active",
         });
         setEditingEmployeeId(null);
@@ -214,7 +229,7 @@ export default function AdminEmployees() {
     };
 
     const openEditEmployeeModal = (employee: Employee) => {
-        setNewEmployee(employee);
+        setNewEmployee({ ...employee, salary: employee.salary || 0 });
         setEditingEmployeeId(employee._id);
         setModalMode("edit");
         setOpenDropdown(null);
@@ -240,7 +255,7 @@ export default function AdminEmployees() {
     const handleSaveEmployee = (event: FormEvent<HTMLFormElement>) => {
         event.preventDefault();
 
-        if (!newEmployee.name.trim() || !newEmployee.email.trim() || !newEmployee.employeeCode.trim()) {
+        if (!newEmployee.name.trim() || !newEmployee.email.trim() || !newEmployee.employeeCode.trim() || newEmployee.salary <= 0) {
             return;
         }
 
@@ -268,48 +283,58 @@ export default function AdminEmployees() {
         setTransactionDate(todayInputValue());
     };
 
+    useEffect(() => {
+        setPage((currentPage) => Math.min(currentPage, totalPages));
+    }, [totalPages]);
+
     return (
         <AdminLayout>
-            <section className="min-h-[calc(100vh-8.5rem)] rounded-lg border border-white/10 bg-[#090b13]/80">
-                <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 px-5 py-4">
+            <section className="flex min-h-[calc(100vh-8.5rem)] flex-col rounded-lg border border-white/10 bg-[#090b13]/80">
+                <div className="shrink-0 flex flex-wrap items-center justify-between gap-4 border-b border-white/10 px-5 py-4">
                     <div>
                         <p className="text-xs font-medium uppercase tracking-[0.16em] text-white/35">Admin Employees</p>
                         <h2 className="mt-1 text-xl font-semibold text-white">Employees</h2>
                     </div>
 
-                    <button
-                        className="flex h-10 items-center gap-2 rounded-lg bg-[linear-gradient(135deg,#842cff,#4a0ebd)] px-4 text-sm font-semibold text-white transition hover:brightness-110 focus:outline-none focus:ring-2 focus:ring-[#842cff]/60"
-                        type="button"
-                        onClick={openAddEmployeeModal}
-                    >
-                        <FiPlus className="size-4" aria-hidden="true" />
-                        Add Employee
-                    </button>
-                </div>
-
-                <div className="grid gap-2.5 p-4 md:grid-cols-3">
-                    {[
-                        ["Employees", employees.length.toString()],
-                        ["Active", activeEmployees.filter((employee) => employee.status === "Active").length.toString()],
-                        ["Teams", teams.length.toString()],
-                    ].map(([label, value]) => (
-                        <div key={label} className="rounded-lg border border-white/10 bg-white/[0.04] px-3.5 py-3">
-                            <p className="text-[0.68rem] font-medium uppercase tracking-[0.12em] text-white/35">{label}</p>
-                            <p className="mt-1 text-xl font-semibold text-white">{value}</p>
+                    <div className="flex flex-wrap items-center gap-3">
+                        <div className="flex flex-wrap items-center gap-2">
+                            {[
+                                ["Employees", activeEmployees.length.toString()],
+                                ["Active", activeEmployees.filter((employee) => employee.status === "Active").length.toString()],
+                                ["Teams", activeTeamCount.toString()],
+                            ].map(([label, value]) => (
+                                <span
+                                    key={label}
+                                    className="inline-flex h-8 items-center gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-3 text-xs font-semibold text-white/55"
+                                >
+                                    <span className="uppercase tracking-[0.12em]">{label}</span>
+                                    <span className="text-sm text-white">{value}</span>
+                                </span>
+                            ))}
                         </div>
-                    ))}
+
+                        <button
+                            className="flex h-10 items-center gap-2 rounded-lg bg-[linear-gradient(135deg,#842cff,#4a0ebd)] px-4 text-sm font-semibold text-white transition hover:brightness-110 focus:outline-none focus:ring-2 focus:ring-[#842cff]/60"
+                            type="button"
+                            onClick={openAddEmployeeModal}
+                        >
+                            <FiPlus className="size-4" aria-hidden="true" />
+                            Add Employee
+                        </button>
+                    </div>
                 </div>
 
-                <div className="px-4 pb-4">
-                    <div className="overflow-hidden rounded-lg border border-white/10">
-                        <div className="overflow-x-auto">
+                <div className="flex min-h-0 flex-1 flex-col">
+                    <div className="flex min-h-[18rem] flex-1 overflow-hidden border-t border-white/10">
+                        <div className="content-scroll min-h-0 flex-1 overflow-auto">
                             <table className="w-full min-w-[56rem] text-left">
-                                <thead className="border-b border-white/10 bg-white/[0.03]">
+                                <thead className="sticky top-0 z-10 border-b border-white/10 bg-[#10131b]">
                                     <tr className="text-xs font-semibold uppercase tracking-[0.14em] text-white/35">
                                         <th className="px-5 py-3">Employee</th>
                                         <th className="px-5 py-3">Role</th>
                                         <th className="px-5 py-3">Code</th>
                                         <th className="px-5 py-3">Team</th>
+                                        <th className="px-5 py-3">Salary</th>
                                         <th className="px-5 py-3">Contact</th>
                                         <th className="px-5 py-3">Status</th>
                                         <th className="px-5 py-3 text-right">Actions</th>
@@ -318,26 +343,26 @@ export default function AdminEmployees() {
                                 <tbody className="divide-y divide-white/10">
                                     {isLoading && (
                                         <tr>
-                                            <td className="px-5 py-8 text-center text-sm text-white/45" colSpan={7}>
+                                            <td className="px-5 py-8 text-center text-sm text-white/45" colSpan={8}>
                                                 Loading employees...
                                             </td>
                                         </tr>
                                     )}
                                     {isError && (
                                         <tr>
-                                            <td className="px-5 py-8 text-center text-sm text-red-200" colSpan={7}>
+                                            <td className="px-5 py-8 text-center text-sm text-red-200" colSpan={8}>
                                                 Unable to load employees. Check that the backend is running.
                                             </td>
                                         </tr>
                                     )}
                                     {!isLoading && !isError && activeEmployees.length === 0 && (
                                         <tr>
-                                            <td className="px-5 py-8 text-center text-sm text-white/45" colSpan={7}>
+                                            <td className="px-5 py-8 text-center text-sm text-white/45" colSpan={8}>
                                                 No employees yet.
                                             </td>
                                         </tr>
                                     )}
-                                    {activeEmployees.map((employee) => (
+                                    {paginatedEmployees.map((employee) => (
                                         <tr key={employee.email} className="text-sm transition hover:bg-white/[0.04]">
                                             <td className="px-5 py-4">
                                                 <div className="flex items-center gap-3">
@@ -350,6 +375,7 @@ export default function AdminEmployees() {
                                             <td className="px-5 py-4 text-white/65">{employee.role}</td>
                                             <td className="px-5 py-4 text-white/65">{employee.employeeCode}</td>
                                             <td className="px-5 py-4 text-white/65">{employee.team}</td>
+                                            <td className="px-5 py-4 font-semibold text-white/80">{money(employee.salary || 0)}</td>
                                             <td className="px-5 py-4">
                                                 <div className="space-y-1 text-white/65">
                                                     <a className="flex items-center gap-2 transition hover:text-white" href={`mailto:${employee.email}`}>
@@ -401,6 +427,16 @@ export default function AdminEmployees() {
                             </table>
                         </div>
                     </div>
+                    <DataTablePagination
+                        totalItems={activeEmployees.length}
+                        page={page}
+                        pageSize={pageSize}
+                        onPageChange={setPage}
+                        onPageSizeChange={(nextPageSize) => {
+                            setPageSize(nextPageSize);
+                            setPage(1);
+                        }}
+                    />
                 </div>
             </section>
 
@@ -480,6 +516,19 @@ export default function AdminEmployees() {
                                     value={newEmployee.phone}
                                     onChange={(event) => setNewEmployee((employee) => ({ ...employee, phone: event.target.value }))}
                                     placeholder="+1 (415) 555-0101"
+                                />
+                            </label>
+
+                            <label>
+                                <span className="text-xs font-medium uppercase tracking-[0.14em] text-white/35">Monthly Salary</span>
+                                <input
+                                    className="mt-2 h-11 w-full rounded-lg border border-white/10 bg-black/20 px-3 text-sm font-semibold text-white outline-none transition placeholder:text-white/30 focus:border-[#842cff] focus:ring-2 focus:ring-[#842cff]/20"
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    value={newEmployee.salary}
+                                    onChange={(event) => setNewEmployee((employee) => ({ ...employee, salary: Number(event.target.value) }))}
+                                    placeholder="5000"
                                 />
                             </label>
                         </div>

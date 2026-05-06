@@ -24,6 +24,7 @@ export type Lead = {
     category: string;
     status: LeadStatus;
     assignedAgent: Employee | null;
+    autoAssignedAt: string | null;
     assignedTeam: Team | null;
     googlePlaceId: string;
     notes: string;
@@ -95,6 +96,22 @@ export type LeadScoreResult = {
     leads: Lead[];
 };
 
+export type LeadReassignmentResult = {
+    reassignedCount: number;
+    leads: Lead[];
+};
+
+export type LeadImportInput = Partial<LeadInput> & {
+    createdAt?: string | null;
+    assignedToName?: string;
+};
+
+export type LeadImportResult = {
+    importedCount: number;
+    skippedCount: number;
+    leads: Lead[];
+};
+
 export async function getLeads(params: { assignedAgent?: string } = {}) {
     const response = await api.get<Lead[]>("/leads", { params });
     return response.data;
@@ -102,6 +119,11 @@ export async function getLeads(params: { assignedAgent?: string } = {}) {
 
 export async function createLead(lead: LeadInput) {
     const response = await api.post<Lead>("/leads", lead);
+    return response.data;
+}
+
+export async function importLeads(leads: LeadImportInput[]) {
+    const response = await api.post<LeadImportResult>("/leads/import", { leads });
     return response.data;
 }
 
@@ -117,6 +139,11 @@ export async function archiveLead(id: string) {
 
 export async function autoAssignLead(id: string) {
     const response = await api.patch<Lead>(`/leads/${id}/auto-assign`);
+    return response.data;
+}
+
+export async function reassignNewLeads() {
+    const response = await api.patch<LeadReassignmentResult>("/leads/reassign-new");
     return response.data;
 }
 

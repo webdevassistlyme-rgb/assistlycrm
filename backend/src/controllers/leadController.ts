@@ -6,6 +6,9 @@ import { scoreLeadsByPotential } from "../services/leadScoringService";
 import { searchAllGooglePlaces, searchGooglePlaces, type GooglePlaceLead } from "../services/googlePlacesService";
 
 const populateLead = ["assignedAgent", "assignedTeam"];
+const AUTO_ASSIGNMENT_BATCH_SIZE = 100;
+const AUTO_ASSIGNMENT_INTERVAL_MS = 24 * 60 * 60 * 1000;
+let leadAutoAssignmentTimer: NodeJS.Timeout | null = null;
 
 type PopulatedLead = Awaited<ReturnType<typeof Lead.find>>[number];
 type AssignmentCandidate = {
@@ -13,8 +16,71 @@ type AssignmentCandidate = {
   assignedCount: number;
 };
 
+const leadStatuses = ["NEW", "Follow up", "Ongoing comms", "Qualified", "Ongoing Negotiation", "Dead", "Archived"] as const;
+
+type ImportedLead = {
+  leadName: string;
+  position: string;
+  businessName: string;
+  businessAddress: string;
+  email: string;
+  phone: string;
+  website: string;
+  source: string;
+  category: string;
+  status: (typeof leadStatuses)[number];
+  assignedAgent: null;
+  autoAssignedAt: null;
+  assignedTeam: null;
+  googlePlaceId: string;
+  notes: string;
+  followUpAt: null;
+  followUpNote: string;
+  followUpPriority: number;
+  aiScore: number;
+  aiScoreReason: string;
+  aiScoreSource: string;
+  aiScoredAt: null;
+  assignedToName: string;
+  createdAt?: Date;
+  updatedAt?: Date;
+};
+
 function normalizeLeadValue(value: string) {
   return value.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function normalizeLeadStatus(value: unknown): (typeof leadStatuses)[number] {
+  const normalizedValue = normalizeLeadValue(String(value || ""));
+  const statusMap: Record<string, (typeof leadStatuses)[number]> = {
+    new: "NEW",
+    followup: "Follow up",
+    "follow up": "Follow up",
+    follow_up: "Follow up",
+    ongoing: "Ongoing comms",
+    "ongoing comms": "Ongoing comms",
+    contacted: "Ongoing comms",
+    qualified: "Qualified",
+    negotiation: "Ongoing Negotiation",
+    "ongoing negotiation": "Ongoing Negotiation",
+    dead: "Dead",
+    lost: "Dead",
+    archived: "Archived",
+  };
+
+  return statusMap[normalizedValue] || "NEW";
+}
+
+function parseOptionalDate(value: unknown) {
+  const rawValue = String(value || "").trim();
+
+  if (!rawValue) {
+    return null;
+  }
+
+  const parsedDate = new Date(rawValue);
+
+  return Number.isNaN(parsedDate.getTime()) ? null : parsedDate;
 }
 
 function escapeRegex(value: string) {
@@ -204,7 +270,7 @@ function getProductFitScore(lead: { businessName: string; category: string; phon
   };
 }
 
-function getFollowUpWeight(lead: { followUpAt?: Date | string | null; followUpPriority?: number }) {
+function getFollowUpBucket(lead: { followUpAt?: Date | string | null }) {
   if (!lead.followUpAt) {
     return 0;
   }
@@ -216,15 +282,35 @@ function getFollowUpWeight(lead: { followUpAt?: Date | string | null; followUpPr
   }
 
   const now = Date.now();
-  const isDue = followUpTime <= now;
-  const isSoon = followUpTime <= now + 24 * 60 * 60 * 1000;
 
-  return (lead.followUpPriority || 0) + (isDue ? 1000 : isSoon ? 500 : 100);
+  if (followUpTime <= now) {
+    return 3;
+  }
+
+  if (followUpTime <= now + AUTO_ASSIGNMENT_INTERVAL_MS) {
+    return 2;
+  }
+
+  return 1;
 }
 
 function sortLeadsByFollowUpPriority<T extends { followUpAt?: Date | string | null; followUpPriority?: number; createdAt?: Date }>(leads: T[]) {
   return [...leads].sort((first, second) => {
-    const priorityDelta = getFollowUpWeight(second) - getFollowUpWeight(first);
+    const bucketDelta = getFollowUpBucket(second) - getFollowUpBucket(first);
+
+    if (bucketDelta !== 0) {
+      return bucketDelta;
+    }
+
+    if (first.followUpAt && second.followUpAt) {
+      const followUpTimeDelta = new Date(first.followUpAt).getTime() - new Date(second.followUpAt).getTime();
+
+      if (followUpTimeDelta !== 0) {
+        return followUpTimeDelta;
+      }
+    }
+
+    const priorityDelta = (second.followUpPriority || 0) - (first.followUpPriority || 0);
 
     if (priorityDelta !== 0) {
       return priorityDelta;
@@ -234,8 +320,13 @@ function sortLeadsByFollowUpPriority<T extends { followUpAt?: Date | string | nu
   });
 }
 
-async function createAssignmentCandidates(): Promise<AssignmentCandidate[]> {
-  const employees = await Employee.find({ status: { $in: ["Active", "Training"] } }).sort({ createdAt: 1 });
+async function createAssignmentCandidates(excludedAgentIds: string[] = []): Promise<AssignmentCandidate[]> {
+  const excludedIds = excludedAgentIds.filter(Boolean);
+  const employees = await Employee.find({
+    status: "Active",
+    $or: [{ role: /sales/i }, { team: /sales/i }],
+    ...(excludedIds.length > 0 ? { _id: { $nin: excludedIds } } : {}),
+  }).sort({ createdAt: 1 });
 
   if (employees.length === 0) {
     return [];
@@ -265,6 +356,162 @@ function pickAssignmentCandidate(candidates: AssignmentCandidate[]): Types.Objec
   return candidate._id;
 }
 
+export async function runLeadAutoAssignmentBatch(limit = AUTO_ASSIGNMENT_BATCH_SIZE) {
+  const assignmentCandidates = await createAssignmentCandidates();
+
+  if (assignmentCandidates.length === 0) {
+    return { assignedCount: 0, availableAgents: 0 };
+  }
+
+  const candidateLeads = await Lead.find({
+    status: { $nin: ["Archived", "Dead"] },
+    $or: [{ assignedAgent: null }, { assignedAgent: { $exists: false } }],
+  })
+    .sort({ createdAt: 1 })
+    .limit(limit * 5);
+  const leads = sortLeadsByFollowUpPriority(candidateLeads).slice(0, limit);
+
+  if (leads.length === 0) {
+    return { assignedCount: 0, availableAgents: assignmentCandidates.length };
+  }
+
+  const assignedAt = new Date();
+  const operations = leads
+    .map((lead) => {
+      const assignedAgent = pickAssignmentCandidate(assignmentCandidates);
+
+      if (!assignedAgent) {
+        return null;
+      }
+
+      return {
+        updateOne: {
+          filter: { _id: lead._id },
+          update: {
+            $set: {
+              assignedAgent,
+              autoAssignedAt: assignedAt,
+            },
+          },
+        },
+      };
+    })
+    .filter((operation): operation is NonNullable<typeof operation> => Boolean(operation));
+
+  if (operations.length === 0) {
+    return { assignedCount: 0, availableAgents: assignmentCandidates.length };
+  }
+
+  const result = await Lead.bulkWrite(operations, { ordered: false });
+
+  return {
+    assignedCount: result.modifiedCount,
+    availableAgents: assignmentCandidates.length,
+  };
+}
+
+export async function reassignLeadsFromAgent(agentId: string) {
+  const normalizedAgentId = String(agentId || "").trim();
+
+  if (!normalizedAgentId) {
+    return { reassignedCount: 0, unassignedCount: 0, availableAgents: 0 };
+  }
+
+  const leads = await Lead.find({
+    assignedAgent: normalizedAgentId,
+    status: { $nin: ["Archived", "Dead"] },
+  }).sort({ createdAt: 1 });
+
+  if (leads.length === 0) {
+    return { reassignedCount: 0, unassignedCount: 0, availableAgents: 0 };
+  }
+
+  const assignmentCandidates = await createAssignmentCandidates([normalizedAgentId]);
+  const assignedAt = new Date();
+  const operations = sortLeadsByFollowUpPriority(leads).map((lead) => {
+    const assignedAgent = pickAssignmentCandidate(assignmentCandidates);
+
+    return {
+      updateOne: {
+        filter: { _id: lead._id },
+        update: {
+          $set: {
+            assignedAgent,
+            autoAssignedAt: assignedAgent ? assignedAt : null,
+          },
+        },
+      },
+    };
+  });
+
+  const result = await Lead.bulkWrite(operations, { ordered: false });
+
+  return {
+    reassignedCount: assignmentCandidates.length > 0 ? result.modifiedCount : 0,
+    unassignedCount: assignmentCandidates.length > 0 ? 0 : result.modifiedCount,
+    availableAgents: assignmentCandidates.length,
+  };
+}
+
+export async function reassignNewLeadsBatch(_request: Request, response: Response) {
+  const leads = await Lead.find({
+    status: "NEW",
+  }).sort({ createdAt: 1 });
+
+  if (leads.length === 0) {
+    response.json({ reassignedCount: 0, leads: [] });
+    return;
+  }
+
+  const assignmentCandidates = await createAssignmentCandidates();
+
+  if (assignmentCandidates.length === 0) {
+    response.status(400).json({ message: "No active sales agents available" });
+    return;
+  }
+
+  const assignedAt = new Date();
+  const operations = sortLeadsByFollowUpPriority(leads).map((lead) => {
+    const assignedAgent = pickAssignmentCandidate(assignmentCandidates);
+
+    return {
+      updateOne: {
+        filter: { _id: lead._id },
+        update: {
+          $set: {
+            assignedAgent,
+            autoAssignedAt: assignedAt,
+          },
+        },
+      },
+    };
+  });
+
+  const result = await Lead.bulkWrite(operations, { ordered: false });
+  const updatedLeads = await Lead.find({ _id: { $in: leads.map((lead) => lead._id) } }).populate(populateLead);
+
+  response.json({
+    reassignedCount: result.modifiedCount,
+    leads: sortLeadsByFollowUpPriority(updatedLeads),
+  });
+}
+
+export function startLeadAutoAssignmentScheduler() {
+  if (leadAutoAssignmentTimer) {
+    return;
+  }
+
+  void runLeadAutoAssignmentBatch().catch((error) => {
+    console.error("Lead auto-assignment failed", error);
+  });
+
+  leadAutoAssignmentTimer = setInterval(() => {
+    void runLeadAutoAssignmentBatch().catch((error) => {
+      console.error("Lead auto-assignment failed", error);
+    });
+  }, AUTO_ASSIGNMENT_INTERVAL_MS);
+}
+
 async function upsertPlacesAsLeads(places: GooglePlaceLead[], category = "") {
   const validPlaces = dedupePlaces(places).filter((place) => String(place.businessName || "").trim());
   const placeCategory = String(category || "").trim();
@@ -288,6 +535,7 @@ async function upsertPlacesAsLeads(places: GooglePlaceLead[], category = "") {
         website: place.website || "",
       });
       const assignedAgent = pickAssignmentCandidate(assignmentCandidates);
+      const autoAssignedAt = assignedAgent ? new Date() : null;
 
       return {
         updateOne: {
@@ -305,6 +553,7 @@ async function upsertPlacesAsLeads(places: GooglePlaceLead[], category = "") {
             $setOnInsert: {
               status: "NEW",
               assignedAgent,
+              autoAssignedAt,
             },
           },
           upsert: true,
@@ -396,6 +645,7 @@ export async function scoreLeadsByHighestPotential(request: Request, response: R
 
 export async function createLead(request: Request, response: Response) {
   const assignmentCandidates = await createAssignmentCandidates();
+  const assignedAgent = request.body.assignedAgent || pickAssignmentCandidate(assignmentCandidates);
   const leadInput = {
     leadName: request.body.leadName || "",
     position: request.body.position || "",
@@ -407,7 +657,8 @@ export async function createLead(request: Request, response: Response) {
     source: request.body.source || "Manual",
     category: request.body.category || "",
     status: request.body.status || "NEW",
-    assignedAgent: request.body.assignedAgent || pickAssignmentCandidate(assignmentCandidates),
+    assignedAgent,
+    autoAssignedAt: assignedAgent && !request.body.assignedAgent ? new Date() : null,
     assignedTeam: request.body.assignedTeam || null,
     googlePlaceId: request.body.googlePlaceId || "",
     notes: request.body.notes || "",
@@ -431,6 +682,157 @@ export async function createLead(request: Request, response: Response) {
 
   const populatedLead = await Lead.findById(lead.id).populate(populateLead);
   response.status(201).json(populatedLead);
+}
+
+export async function importLeads(request: Request, response: Response) {
+  const rawLeads: Array<Record<string, unknown>> = Array.isArray(request.body.leads) ? request.body.leads : [];
+  const validLeads = rawLeads
+    .map((lead): ImportedLead | null => {
+      const businessName = String(lead.businessName || lead["Business Name"] || "").trim();
+
+      if (!businessName) {
+        return null;
+      }
+
+      const createdAt = parseOptionalDate(lead.createdAt || lead["Created At"]);
+
+      return {
+        leadName: String(lead.leadName || lead.Name || "").trim(),
+        position: String(lead.position || "").trim(),
+        businessName,
+        businessAddress: String(lead.businessAddress || lead.Address || "").trim(),
+        email: String(lead.email || lead.Email || "").trim(),
+        phone: String(lead.phone || lead.Phone || "").trim(),
+        website: String(lead.website || lead.Website || "").trim(),
+        source: String(lead.source || lead.Source || "CSV Import").trim() || "CSV Import",
+        category: String(lead.category || lead["Biz Type"] || "").trim(),
+        status: normalizeLeadStatus(lead.status || lead.Status),
+        assignedAgent: null,
+        autoAssignedAt: null,
+        assignedToName: String(lead.assignedToName || lead["Assigned To"] || "").trim(),
+        assignedTeam: null,
+        googlePlaceId: String(lead.googlePlaceId || "").trim(),
+        notes: String(lead.notes || lead.Notes || "").trim(),
+        followUpAt: null,
+        followUpNote: "",
+        followUpPriority: 0,
+        aiScore: 0,
+        aiScoreReason: "",
+        aiScoreSource: "",
+        aiScoredAt: null,
+        ...(createdAt ? { createdAt } : {}),
+      };
+    })
+    .filter((lead): lead is ImportedLead => Boolean(lead));
+
+  if (validLeads.length === 0) {
+    response.status(400).json({ message: "No valid leads found in import" });
+    return;
+  }
+
+  const assignmentCandidates = await createAssignmentCandidates();
+  const importedLeadKeys = new Set<string>();
+  const dedupedLeads = validLeads.filter((lead) => {
+    const key = getLeadDedupKey(lead);
+
+    if (importedLeadKeys.has(key)) {
+      return false;
+    }
+
+    importedLeadKeys.add(key);
+    return true;
+  });
+  const assignedToNames = Array.from(new Set(dedupedLeads.map((lead) => lead.assignedToName).filter(Boolean)));
+  const assignedEmployees = assignedToNames.length > 0
+    ? await Employee.find({
+        status: { $ne: "Archived" },
+        $or: assignedToNames.map((name) => ({ name: flexibleExactRegex(name) })),
+      }).select("_id name employeeCode")
+    : [];
+  const employeesByAssignedTo = new Map(
+    assignedEmployees.flatMap((employee) => [
+      [normalizeLeadValue(employee.name), employee._id],
+      [normalizeLeadValue(employee.employeeCode), employee._id],
+    ])
+  );
+
+  await Lead.bulkWrite(
+    dedupedLeads.map((lead) => {
+      const duplicateFilters = getLeadDuplicateFilters(lead);
+      const importedAssignedAgent = employeesByAssignedTo.get(normalizeLeadValue(lead.assignedToName)) || null;
+      const assignedAgent = importedAssignedAgent || pickAssignmentCandidate(assignmentCandidates);
+      const autoAssignedAt = assignedAgent && !importedAssignedAgent ? new Date() : null;
+      const { createdAt, assignedToName, ...leadFields } = lead;
+      const setFields: Record<string, unknown> = {
+        leadName: leadFields.leadName,
+        position: leadFields.position,
+        businessName: leadFields.businessName,
+        businessAddress: leadFields.businessAddress,
+        email: leadFields.email,
+        phone: leadFields.phone,
+        website: leadFields.website,
+        source: leadFields.source,
+        category: leadFields.category,
+        notes: leadFields.notes,
+        googlePlaceId: leadFields.googlePlaceId,
+      };
+      const noteComment = leadFields.notes
+        ? {
+            authorName: "CSV Import",
+            authorType: "admin" as const,
+            body: leadFields.notes,
+            createdAt: createdAt || new Date(),
+          }
+        : null;
+
+      if (importedAssignedAgent) {
+        setFields.assignedAgent = importedAssignedAgent;
+        setFields.autoAssignedAt = null;
+      }
+
+      return {
+        updateOne: {
+          filter: duplicateFilters.length > 0 ? { $or: duplicateFilters } : { businessName: lead.businessName, businessAddress: lead.businessAddress },
+          update: {
+            $set: setFields,
+            ...(noteComment ? { $push: { comments: noteComment } } : {}),
+            $setOnInsert: {
+              status: leadFields.status,
+              ...(!importedAssignedAgent ? { assignedAgent, autoAssignedAt } : {}),
+              assignedTeam: leadFields.assignedTeam,
+              followUpAt: leadFields.followUpAt,
+              followUpNote: leadFields.followUpNote,
+              followUpPriority: leadFields.followUpPriority,
+              aiScore: leadFields.aiScore,
+              aiScoreReason: leadFields.aiScoreReason,
+              aiScoreSource: leadFields.aiScoreSource,
+              aiScoredAt: leadFields.aiScoredAt,
+              ...(createdAt ? { createdAt } : {}),
+            },
+          },
+          upsert: true,
+        },
+      };
+    }),
+    { ordered: false }
+  );
+
+  const importedLeadFilters = dedupedLeads.flatMap((lead) => {
+    const duplicateFilters = getLeadDuplicateFilters(lead);
+
+    return duplicateFilters.length > 0 ? duplicateFilters : [{ businessName: lead.businessName, businessAddress: lead.businessAddress }];
+  });
+  const importedLeads = await Lead.find({
+    $or: importedLeadFilters,
+  })
+    .populate(populateLead)
+    .sort({ createdAt: -1 });
+
+  response.status(201).json({
+    importedCount: dedupedLeads.length,
+    skippedCount: rawLeads.length - dedupedLeads.length,
+    leads: sortLeadsByFollowUpPriority(dedupeLeads(importedLeads)),
+  });
 }
 
 export async function updateLead(request: Request, response: Response) {
@@ -574,7 +976,7 @@ export async function autoAssignLead(request: Request, response: Response) {
 
   const lead = await Lead.findByIdAndUpdate(
     request.params.id,
-    { assignedAgent },
+    { assignedAgent, autoAssignedAt: new Date() },
     { new: true, runValidators: true }
   ).populate(populateLead);
 

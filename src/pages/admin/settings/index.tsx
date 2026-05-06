@@ -1,7 +1,7 @@
 import type { FormEvent } from "react";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FiAlertTriangle, FiArchive, FiCheck, FiChevronDown, FiEdit2, FiGitBranch, FiPlus, FiSave, FiShield, FiSliders, FiTool, FiX } from "react-icons/fi";
+import { FiAlertTriangle, FiArchive, FiCheck, FiChevronDown, FiCreditCard, FiEdit2, FiGitBranch, FiPlus, FiSave, FiShield, FiSliders, FiTag, FiTool, FiX } from "react-icons/fi";
 import AdminLayout from "../adminLayout";
 import { archiveRole, createRole, getRoles, updateRole, type Role, type RoleInput } from "../../../api/roles";
 import {
@@ -14,12 +14,29 @@ import {
 } from "../../../api/branches";
 import { archiveTool, createTool, getTools, updateTool, type Tool, type ToolInput } from "../../../api/tools";
 import { getFeatures, updateFeature, type FeatureFlag } from "../../../api/features";
+import {
+    archiveProductCategory,
+    createProductCategory,
+    getProductCategories,
+    updateProductCategory,
+    type ProductCategory,
+    type ProductCategoryInput,
+} from "../../../api/productCategories";
+import {
+    currencyOptions,
+    getSystemSettings,
+    payrollBillingCycleOptions,
+    updateSystemSettings,
+    type CurrencyCode,
+    type PayrollBillingCycle,
+} from "../../../api/systemSettings";
 
-type SettingsTab = "Roles" | "Branches" | "Tools" | "Features";
+type SettingsTab = "Roles" | "Branches" | "Tools" | "Product Categories" | "Features" | "System";
 
 const emptyRole: RoleInput = { name: "", description: "" };
 const emptyBranch: BranchInput = { name: "", company: "Assistly", location: "" };
 const emptyTool: ToolInput = { name: "", link: "", branches: [] };
+const emptyProductCategory: ProductCategoryInput = { name: "", description: "" };
 
 export default function AdminSettings() {
     const queryClient = useQueryClient();
@@ -27,15 +44,18 @@ export default function AdminSettings() {
     const [isRoleModalOpen, setIsRoleModalOpen] = useState(false);
     const [isBranchModalOpen, setIsBranchModalOpen] = useState(false);
     const [isToolModalOpen, setIsToolModalOpen] = useState(false);
+    const [isProductCategoryModalOpen, setIsProductCategoryModalOpen] = useState(false);
     const [isToolBranchDropdownOpen, setIsToolBranchDropdownOpen] = useState(false);
     const [editingRoleId, setEditingRoleId] = useState<string | null>(null);
     const [editingBranchId, setEditingBranchId] = useState<string | null>(null);
     const [editingToolId, setEditingToolId] = useState<string | null>(null);
+    const [editingProductCategoryId, setEditingProductCategoryId] = useState<string | null>(null);
     const [deleteTarget, setDeleteTarget] = useState<{ label: string; type: SettingsTab; onConfirm: () => void } | null>(null);
     const [deleteStep, setDeleteStep] = useState<1 | 2>(1);
     const [roleForm, setRoleForm] = useState<RoleInput>(emptyRole);
     const [branchForm, setBranchForm] = useState<BranchInput>(emptyBranch);
     const [toolForm, setToolForm] = useState<ToolInput>(emptyTool);
+    const [productCategoryForm, setProductCategoryForm] = useState<ProductCategoryInput>(emptyProductCategory);
 
     const { data: roles = [], isLoading: rolesLoading, isError: rolesError } = useQuery({
         queryKey: ["roles"],
@@ -49,15 +69,25 @@ export default function AdminSettings() {
         queryKey: ["tools"],
         queryFn: getTools,
     });
+    const { data: productCategories = [], isLoading: productCategoriesLoading, isError: productCategoriesError } = useQuery({
+        queryKey: ["product-categories"],
+        queryFn: getProductCategories,
+    });
     const { data: features = [], isLoading: featuresLoading, isError: featuresError } = useQuery({
         queryKey: ["features"],
         queryFn: getFeatures,
+    });
+    const { data: systemSettings, isLoading: systemSettingsLoading, isError: systemSettingsError } = useQuery({
+        queryKey: ["system-settings"],
+        queryFn: getSystemSettings,
     });
 
     const invalidateRoles = () => queryClient.invalidateQueries({ queryKey: ["roles"] });
     const invalidateBranches = () => queryClient.invalidateQueries({ queryKey: ["branches"] });
     const invalidateTools = () => queryClient.invalidateQueries({ queryKey: ["tools"] });
+    const invalidateProductCategories = () => queryClient.invalidateQueries({ queryKey: ["product-categories"] });
     const invalidateFeatures = () => queryClient.invalidateQueries({ queryKey: ["features"] });
+    const invalidateSystemSettings = () => queryClient.invalidateQueries({ queryKey: ["system-settings"] });
 
     const createRoleMutation = useMutation({ mutationFn: createRole, onSuccess: invalidateRoles });
     const updateRoleMutation = useMutation({
@@ -78,6 +108,12 @@ export default function AdminSettings() {
         onSuccess: invalidateTools,
     });
     const archiveToolMutation = useMutation({ mutationFn: archiveTool, onSuccess: invalidateTools });
+    const createProductCategoryMutation = useMutation({ mutationFn: createProductCategory, onSuccess: invalidateProductCategories });
+    const updateProductCategoryMutation = useMutation({
+        mutationFn: ({ id, category }: { id: string; category: ProductCategoryInput }) => updateProductCategory(id, category),
+        onSuccess: invalidateProductCategories,
+    });
+    const archiveProductCategoryMutation = useMutation({ mutationFn: archiveProductCategory, onSuccess: invalidateProductCategories });
     const updateFeatureMutation = useMutation({
         mutationFn: ({ feature }: { feature: FeatureFlag }) =>
             updateFeature(feature.key, {
@@ -85,6 +121,10 @@ export default function AdminSettings() {
                 employeeEnabled: feature.employeeEnabled,
             }),
         onSuccess: invalidateFeatures,
+    });
+    const updateSystemSettingsMutation = useMutation({
+        mutationFn: updateSystemSettings,
+        onSuccess: invalidateSystemSettings,
     });
 
     const openAddRoleModal = () => {
@@ -142,6 +182,24 @@ export default function AdminSettings() {
         setToolForm(emptyTool);
     };
 
+    const openAddProductCategoryModal = () => {
+        setEditingProductCategoryId(null);
+        setProductCategoryForm(emptyProductCategory);
+        setIsProductCategoryModalOpen(true);
+    };
+
+    const openEditProductCategoryModal = (category: ProductCategory) => {
+        setEditingProductCategoryId(category._id);
+        setProductCategoryForm({ name: category.name, description: category.description });
+        setIsProductCategoryModalOpen(true);
+    };
+
+    const closeProductCategoryModal = () => {
+        setIsProductCategoryModalOpen(false);
+        setEditingProductCategoryId(null);
+        setProductCategoryForm(emptyProductCategory);
+    };
+
     const handleSaveRole = (event: FormEvent<HTMLFormElement>) => {
         event.preventDefault();
 
@@ -184,10 +242,25 @@ export default function AdminSettings() {
         closeToolModal();
     };
 
+    const handleSaveProductCategory = (event: FormEvent<HTMLFormElement>) => {
+        event.preventDefault();
+
+        if (!productCategoryForm.name.trim()) return;
+
+        if (editingProductCategoryId) {
+            updateProductCategoryMutation.mutate({ id: editingProductCategoryId, category: productCategoryForm });
+        } else {
+            createProductCategoryMutation.mutate(productCategoryForm);
+        }
+
+        closeProductCategoryModal();
+    };
+
     const openCurrentAddModal = () => {
         if (activeTab === "Roles") openAddRoleModal();
         if (activeTab === "Branches") openAddBranchModal();
         if (activeTab === "Tools") openAddToolModal();
+        if (activeTab === "Product Categories") openAddProductCategoryModal();
     };
 
     const openDeletePrompt = (target: { label: string; type: SettingsTab; onConfirm: () => void }) => {
@@ -214,22 +287,33 @@ export default function AdminSettings() {
                         <h2 className="mt-1 text-xl font-semibold text-white">{activeTab}</h2>
                     </div>
 
-                    {activeTab !== "Features" && (
+                    {activeTab !== "Features" && activeTab !== "System" && (
                         <button
                             className="flex h-10 items-center gap-2 rounded-lg bg-[linear-gradient(135deg,#842cff,#4a0ebd)] px-4 text-sm font-semibold text-white transition hover:brightness-110 focus:outline-none focus:ring-2 focus:ring-[#842cff]/60"
                             type="button"
                             onClick={openCurrentAddModal}
                         >
                             <FiPlus className="size-4" aria-hidden="true" />
-                            Add {activeTab === "Roles" ? "Role" : activeTab === "Branches" ? "Branch" : "Tool"}
+                            Add {activeTab === "Roles" ? "Role" : activeTab === "Branches" ? "Branch" : activeTab === "Tools" ? "Tool" : "Category"}
                         </button>
                     )}
                 </div>
 
                 <div className="border-b border-white/10 px-4 pt-3">
                     <div className="flex gap-2">
-                        {(["Roles", "Branches", "Tools", "Features"] as const).map((tab) => {
-                            const Icon = tab === "Roles" ? FiShield : tab === "Branches" ? FiGitBranch : tab === "Tools" ? FiTool : FiSliders;
+                        {(["Roles", "Branches", "Tools", "Product Categories", "Features", "System"] as const).map((tab) => {
+                            const Icon =
+                                tab === "Roles"
+                                    ? FiShield
+                                    : tab === "Branches"
+                                      ? FiGitBranch
+                                      : tab === "Tools"
+                                        ? FiTool
+                                        : tab === "Product Categories"
+                                          ? FiTag
+                                          : tab === "Features"
+                                            ? FiSliders
+                                            : FiCreditCard;
 
                             return (
                                 <button
@@ -270,10 +354,22 @@ export default function AdminSettings() {
                               ["Default Tool", tools[0]?.name || "None"],
                               ["Source", "MongoDB"],
                           ]
-                            : [
+                            : activeTab === "Product Categories"
+                              ? [
+                                  ["Categories", productCategories.length.toString()],
+                                  ["Default Category", productCategories[0]?.name || "None"],
+                                  ["Source", "MongoDB"],
+                              ]
+                            : activeTab === "Features"
+                              ? [
                                 ["Features", features.length.toString()],
                                 ["Admin Enabled", features.filter((feature) => feature.adminEnabled).length.toString()],
                                 ["Employee Enabled", features.filter((feature) => feature.employeeEnabled).length.toString()],
+                            ]
+                              : [
+                                ["Currency", systemSettings?.currencyCode || "USD"],
+                                ["Cycle", systemSettings?.payrollBillingCycle || "Monthly"],
+                                ["Deduction", `${systemSettings?.payrollDeductionPercentage ?? 13}%`],
                             ]
                     ).map(([label, value]) => (
                         <div key={label} className="rounded-lg border border-white/10 bg-white/[0.04] px-3.5 py-3">
@@ -308,12 +404,25 @@ export default function AdminSettings() {
                                         <th className="w-[28%] px-5 py-4">Branches</th>
                                         <th className="w-[16%] px-5 py-4 text-right">Actions</th>
                                     </tr>
-                                ) : (
+                                ) : activeTab === "Product Categories" ? (
+                                    <tr>
+                                        <th className="w-[28%] px-5 py-4">Category</th>
+                                        <th className="w-[56%] px-5 py-4">Description</th>
+                                        <th className="w-[16%] px-5 py-4 text-right">Actions</th>
+                                    </tr>
+                                ) : activeTab === "Features" ? (
                                     <tr>
                                         <th className="w-[24%] px-5 py-4">Feature</th>
                                         <th className="w-[48%] px-5 py-4">Description</th>
                                         <th className="w-[14%] px-5 py-4 text-center">Admin</th>
                                         <th className="w-[14%] px-5 py-4 text-center">Employee</th>
+                                    </tr>
+                                ) : (
+                                    <tr>
+                                        <th className="w-[28%] px-5 py-4">Setting</th>
+                                        <th className="w-[18%] px-5 py-4">Current</th>
+                                        <th className="w-[18%] px-5 py-4">Type</th>
+                                        <th className="w-[36%] px-5 py-4">Action</th>
                                     </tr>
                                 )}
                             </thead>
@@ -405,7 +514,32 @@ export default function AdminSettings() {
                                             </tr>
                                         ))}
                                     </>
-                                ) : (
+                                ) : activeTab === "Product Categories" ? (
+                                    <>
+                                        {productCategoriesLoading && <EmptyRow colSpan={3} text="Loading categories..." />}
+                                        {productCategoriesError && <EmptyRow colSpan={3} text="Unable to load categories." danger />}
+                                        {!productCategoriesLoading && !productCategoriesError && productCategories.length === 0 && <EmptyRow colSpan={3} text="No categories yet." />}
+                                        {productCategories.map((category) => (
+                                            <tr key={category._id} className="text-sm text-white/80 transition hover:bg-white/[0.035]">
+                                                <td className="px-5 py-4 font-semibold text-white">{category.name}</td>
+                                                <td className="truncate px-5 py-4 text-white/55">{category.description || "No description"}</td>
+                                                <td className="px-5 py-4">
+                                                    <RowActions
+                                                        label={category.name}
+                                                        onEdit={() => openEditProductCategoryModal(category)}
+                                                        onArchive={() =>
+                                                            openDeletePrompt({
+                                                                label: category.name,
+                                                                type: "Product Categories",
+                                                                onConfirm: () => archiveProductCategoryMutation.mutate(category._id),
+                                                            })
+                                                        }
+                                                    />
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </>
+                                ) : activeTab === "Features" ? (
                                     <>
                                         {featuresLoading && <EmptyRow colSpan={4} text="Loading features..." />}
                                         {featuresError && <EmptyRow colSpan={4} text="Unable to load features." danger />}
@@ -439,6 +573,109 @@ export default function AdminSettings() {
                                             </tr>
                                         ))}
                                     </>
+                                ) : (
+                                    <>
+                                        {systemSettingsLoading && <EmptyRow colSpan={4} text="Loading system settings..." />}
+                                        {systemSettingsError && <EmptyRow colSpan={4} text="Unable to load system settings." danger />}
+                                        {!systemSettingsLoading &&
+                                            !systemSettingsError &&
+                                            currencyOptions.map((currency) => {
+                                                const isActive = (systemSettings?.currencyCode || "USD") === currency.code;
+
+                                                return (
+                                                    <tr key={currency.code} className="text-sm text-white/80 transition hover:bg-white/[0.035]">
+                                                        <td className="px-5 py-4 font-semibold text-white">{currency.label}</td>
+                                                        <td className="px-5 py-4 text-white/60">{currency.code}</td>
+                                                        <td className="px-5 py-4 text-xl font-semibold text-white">{currency.symbol}</td>
+                                                        <td className="px-5 py-4">
+                                                            <button
+                                                                className={[
+                                                                    "inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-60",
+                                                                    isActive
+                                                                        ? "border-[#842cff]/45 bg-[#842cff]/20 text-white"
+                                                                        : "border-white/10 bg-white/[0.04] text-white/60 hover:bg-white/[0.08] hover:text-white",
+                                                                ].join(" ")}
+                                                                type="button"
+                                                                disabled={isActive || updateSystemSettingsMutation.isPending}
+                                                                onClick={() => updateSystemSettingsMutation.mutate({ currencyCode: currency.code as CurrencyCode })}
+                                                            >
+                                                                {isActive && <FiCheck className="size-4" aria-hidden="true" />}
+                                                                {isActive ? "Active currency" : "Use currency"}
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })}
+                                        {!systemSettingsLoading && !systemSettingsError && (
+                                            <>
+                                                <tr className="bg-white/[0.02] text-sm text-white/80 transition hover:bg-white/[0.035]">
+                                                    <td className="px-5 py-4 font-semibold text-white">Payroll billing cycle</td>
+                                                    <td className="px-5 py-4 text-white/65">{systemSettings?.payrollBillingCycle || "Monthly"}</td>
+                                                    <td className="px-5 py-4 text-white/45">Payroll</td>
+                                                    <td className="px-5 py-4">
+                                                        <select
+                                                            className="h-9 min-w-40 rounded-lg border border-white/10 bg-[#080b12] px-3 text-sm font-semibold text-white outline-none transition focus:border-[#842cff] focus:ring-2 focus:ring-[#842cff]/20 disabled:opacity-60"
+                                                            value={systemSettings?.payrollBillingCycle || "Monthly"}
+                                                            disabled={updateSystemSettingsMutation.isPending}
+                                                            onChange={(event) =>
+                                                                updateSystemSettingsMutation.mutate({
+                                                                    payrollBillingCycle: event.target.value as PayrollBillingCycle,
+                                                                })
+                                                            }
+                                                        >
+                                                            {payrollBillingCycleOptions.map((cycle) => (
+                                                                <option key={cycle}>{cycle}</option>
+                                                            ))}
+                                                        </select>
+                                                    </td>
+                                                </tr>
+                                                <tr className="text-sm text-white/80 transition hover:bg-white/[0.035]">
+                                                    <td className="px-5 py-4 font-semibold text-white">Payroll run day</td>
+                                                    <td className="px-5 py-4 text-white/65">Day {systemSettings?.payrollRunDay ?? 15}</td>
+                                                    <td className="px-5 py-4 text-white/45">Schedule</td>
+                                                    <td className="px-5 py-4">
+                                                        <input
+                                                            className="h-9 w-28 rounded-lg border border-white/10 bg-black/20 px-3 text-sm font-semibold text-white outline-none transition focus:border-[#842cff] focus:ring-2 focus:ring-[#842cff]/20 disabled:opacity-60"
+                                                            type="number"
+                                                            min={1}
+                                                            max={31}
+                                                            defaultValue={systemSettings?.payrollRunDay ?? 15}
+                                                            disabled={updateSystemSettingsMutation.isPending}
+                                                            onBlur={(event) =>
+                                                                updateSystemSettingsMutation.mutate({
+                                                                    payrollRunDay: Number(event.target.value),
+                                                                })
+                                                            }
+                                                        />
+                                                    </td>
+                                                </tr>
+                                                <tr className="bg-white/[0.02] text-sm text-white/80 transition hover:bg-white/[0.035]">
+                                                    <td className="px-5 py-4 font-semibold text-white">Auto deduction percentage</td>
+                                                    <td className="px-5 py-4 text-white/65">{systemSettings?.payrollDeductionPercentage ?? 13}%</td>
+                                                    <td className="px-5 py-4 text-white/45">Payroll</td>
+                                                    <td className="px-5 py-4">
+                                                        <div className="flex items-center gap-2">
+                                                            <input
+                                                                className="h-9 w-28 rounded-lg border border-white/10 bg-black/20 px-3 text-sm font-semibold text-white outline-none transition focus:border-[#842cff] focus:ring-2 focus:ring-[#842cff]/20 disabled:opacity-60"
+                                                                type="number"
+                                                                min={0}
+                                                                max={100}
+                                                                step={0.01}
+                                                                defaultValue={systemSettings?.payrollDeductionPercentage ?? 13}
+                                                                disabled={updateSystemSettingsMutation.isPending}
+                                                                onBlur={(event) =>
+                                                                    updateSystemSettingsMutation.mutate({
+                                                                        payrollDeductionPercentage: Number(event.target.value),
+                                                                    })
+                                                                }
+                                                            />
+                                                            <span className="text-xs font-semibold text-white/45">Applied when payroll auto-generates</span>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            </>
+                                        )}
+                                    </>
                                 )}
                             </tbody>
                         </table>
@@ -451,7 +688,11 @@ export default function AdminSettings() {
                                       ? `Showing ${branches.length} branch${branches.length === 1 ? "" : "es"}`
                                       : activeTab === "Tools"
                                         ? `Showing ${tools.length} tool${tools.length === 1 ? "" : "s"}`
-                                        : `Showing ${features.length} feature${features.length === 1 ? "" : "s"}`}
+                                        : activeTab === "Product Categories"
+                                          ? `Showing ${productCategories.length} categor${productCategories.length === 1 ? "y" : "ies"}`
+                                        : activeTab === "Features"
+                                          ? `Showing ${features.length} feature${features.length === 1 ? "" : "s"}`
+                                          : `Showing ${currencyOptions.length + 3} system setting${currencyOptions.length + 3 === 1 ? "" : "s"}`}
                             </p>
                             <span className="rounded-md border border-white/10 bg-white/[0.035] px-3 py-1.5 text-xs font-semibold text-white/55">
                                 {activeTab}
@@ -607,6 +848,34 @@ export default function AdminSettings() {
                             </div>
                         )}
                     </div>
+                </SettingsModal>
+            )}
+
+            {isProductCategoryModalOpen && (
+                <SettingsModal
+                    title={editingProductCategoryId ? "Edit Category" : "Add Category"}
+                    subtitle="Categories appear below the title field for product entries."
+                    onClose={closeProductCategoryModal}
+                    onSubmit={handleSaveProductCategory}
+                >
+                    <label>
+                        <span className="text-xs font-medium uppercase tracking-[0.14em] text-white/35">Category Name</span>
+                        <input
+                            className="mt-2 h-11 w-full rounded-lg border border-white/10 bg-black/20 px-3 text-sm font-semibold text-white outline-none transition placeholder:text-white/30 focus:border-[#842cff] focus:ring-2 focus:ring-[#842cff]/20"
+                            value={productCategoryForm.name}
+                            onChange={(event) => setProductCategoryForm((category) => ({ ...category, name: event.target.value }))}
+                            placeholder="Website package"
+                        />
+                    </label>
+                    <label>
+                        <span className="text-xs font-medium uppercase tracking-[0.14em] text-white/35">Description</span>
+                        <textarea
+                            className="mt-2 min-h-24 w-full resize-none rounded-lg border border-white/10 bg-black/20 p-3 text-sm font-semibold text-white outline-none transition placeholder:text-white/30 focus:border-[#842cff] focus:ring-2 focus:ring-[#842cff]/20"
+                            value={productCategoryForm.description}
+                            onChange={(event) => setProductCategoryForm((category) => ({ ...category, description: event.target.value }))}
+                            placeholder="Optional category description"
+                        />
+                    </label>
                 </SettingsModal>
             )}
 

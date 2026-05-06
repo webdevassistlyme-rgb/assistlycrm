@@ -1,5 +1,5 @@
 import type { FormEvent } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
     FiAlertTriangle,
@@ -10,8 +10,10 @@ import {
     FiMapPin,
     FiPhone,
     FiPlus,
+    FiRefreshCw,
     FiSave,
     FiSearch,
+    FiUpload,
     FiX,
     FiZap,
 } from "react-icons/fi";
@@ -23,12 +25,15 @@ import {
     autoAssignLead,
     createLead,
     getLeads,
+    importLeads,
+    reassignNewLeads,
     scheduleLeadFollowUp,
     searchAndImportGooglePlaces,
     scoreLeadsByHighestPotential,
     updateLead,
     type GooglePlaceLead,
     type Lead,
+    type LeadImportInput,
     type LeadInput,
     type LeadStatus,
 } from "../../../api/leads";
@@ -69,6 +74,115 @@ function formatFilterLabel(value: string) {
         .trim()
         .replace(/\s+/g, " ")
         .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function normalizeImportedStatus(value: string): LeadStatus {
+    const normalizedValue = value.trim().toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ");
+    const statusMap: Record<string, LeadStatus> = {
+        new: "NEW",
+        qualified: "Qualified",
+        dead: "Dead",
+        lost: "Dead",
+        ongoing: "Ongoing comms",
+        contacted: "Ongoing comms",
+        "ongoing comms": "Ongoing comms",
+        followup: "Follow up",
+        "follow up": "Follow up",
+        negotiation: "Ongoing Negotiation",
+        "ongoing negotiation": "Ongoing Negotiation",
+        archived: "Archived",
+    };
+
+    return statusMap[normalizedValue] || "NEW";
+}
+
+function parseCsv(text: string) {
+    const rows: string[][] = [];
+    let row: string[] = [];
+    let cell = "";
+    let isQuoted = false;
+
+    for (let index = 0; index < text.length; index += 1) {
+        const char = text[index];
+        const nextChar = text[index + 1];
+
+        if (char === '"' && isQuoted && nextChar === '"') {
+            cell += '"';
+            index += 1;
+            continue;
+        }
+
+        if (char === '"') {
+            isQuoted = !isQuoted;
+            continue;
+        }
+
+        if (char === "," && !isQuoted) {
+            row.push(cell);
+            cell = "";
+            continue;
+        }
+
+        if ((char === "\n" || char === "\r") && !isQuoted) {
+            if (char === "\r" && nextChar === "\n") {
+                index += 1;
+            }
+
+            row.push(cell);
+            if (row.some((value) => value.trim())) {
+                rows.push(row);
+            }
+            row = [];
+            cell = "";
+            continue;
+        }
+
+        cell += char;
+    }
+
+    row.push(cell);
+    if (row.some((value) => value.trim())) {
+        rows.push(row);
+    }
+
+    return rows;
+}
+
+function getCsvValue(row: Record<string, string>, key: string) {
+    return row[key]?.trim() || "";
+}
+
+function parseLeadCsv(text: string): LeadImportInput[] {
+    const rows = parseCsv(text);
+    const headers = rows[0]?.map((header) => header.trim()) || [];
+
+    if (headers.length === 0) {
+        return [];
+    }
+
+    return rows.slice(1).map((values) => {
+        const row = Object.fromEntries(headers.map((header, index) => [header, values[index] || ""]));
+        const businessName = getCsvValue(row, "Business Name") || getCsvValue(row, "Name");
+
+        return {
+            leadName: getCsvValue(row, "Name"),
+            businessName,
+            businessAddress: getCsvValue(row, "Address"),
+            email: getCsvValue(row, "Email"),
+            phone: getCsvValue(row, "Phone"),
+            source: getCsvValue(row, "Source") || "CSV Import",
+            category: getCsvValue(row, "Biz Type"),
+            status: normalizeImportedStatus(getCsvValue(row, "Status")),
+            assignedToName: getCsvValue(row, "Assigned To"),
+            notes: getCsvValue(row, "Notes"),
+            createdAt: getCsvValue(row, "Created At") || null,
+            position: "",
+            website: "",
+            assignedAgent: null,
+            assignedTeam: null,
+            googlePlaceId: "",
+        };
+    }).filter((lead) => lead.businessName?.trim());
 }
 
 function getRelativeTime(value?: string | null) {
@@ -143,13 +257,6 @@ function getLeadActivity(lead: Lead) {
         status: "Current",
     });
 
-    activities.push({
-        label: "Next action",
-        detail: lead.followUpAt ? "Complete the scheduled follow-up." : "Contact the lead and schedule the next step.",
-        status: "Next",
-        action: "follow-up",
-    });
-
     return activities;
 }
 
@@ -181,6 +288,7 @@ function toLeadInput(lead: Lead, notes: string): LeadInput {
 
 export default function AdminLeads() {
     const queryClient = useQueryClient();
+    const importInputRef = useRef<HTMLInputElement>(null);
     const { data: leads = [], isLoading, isError } = useQuery({
         queryKey: ["leads"],
         queryFn: () => getLeads(),
@@ -205,6 +313,7 @@ export default function AdminLeads() {
     const [commentDraft, setCommentDraft] = useState("");
     const [deleteTarget, setDeleteTarget] = useState<Lead | null>(null);
     const [deleteStep, setDeleteStep] = useState<1 | 2>(1);
+    const [importMessage, setImportMessage] = useState("");
 
     const invalidateLeads = () => {
         queryClient.invalidateQueries({ queryKey: ["leads"] });
@@ -213,6 +322,21 @@ export default function AdminLeads() {
     const createLeadMutation = useMutation({
         mutationFn: createLead,
         onSuccess: invalidateLeads,
+    });
+
+    const importLeadsMutation = useMutation({
+        mutationFn: importLeads,
+        onSuccess: (result) => {
+            queryClient.setQueryData<Lead[]>(["leads"], (current = []) => {
+                const leadsById = new Map([...result.leads, ...current].map((lead) => [lead._id, lead]));
+                return Array.from(leadsById.values());
+            });
+            setImportMessage(`Imported ${result.importedCount} lead${result.importedCount === 1 ? "" : "s"}`);
+            invalidateLeads();
+        },
+        onError: () => {
+            setImportMessage("Import failed. Check the CSV and try again.");
+        },
     });
 
     const archiveLeadMutation = useMutation({
@@ -241,6 +365,18 @@ export default function AdminLeads() {
             queryClient.setQueryData<Lead[]>(["leads"], (current = []) =>
                 current.map((currentLead) => (currentLead._id === lead._id ? lead : currentLead))
             );
+        },
+    });
+
+    const reassignNewLeadsMutation = useMutation({
+        mutationFn: reassignNewLeads,
+        onSuccess: (result) => {
+            queryClient.setQueryData<Lead[]>(["leads"], (current = []) => {
+                const reassignedLeadsById = new Map(result.leads.map((lead) => [lead._id, lead]));
+
+                return current.map((lead) => reassignedLeadsById.get(lead._id) || lead);
+            });
+            invalidateLeads();
         },
     });
 
@@ -342,7 +478,13 @@ export default function AdminLeads() {
 
     const selectLead = (leadId: string) => {
         setSelectedLeadId(leadId);
-        setLeadHistoryIds((current) => [leadId, ...current.filter((historyId) => historyId !== leadId)].slice(0, 8));
+        setLeadHistoryIds((current) => {
+            if (current.includes(leadId)) {
+                return current;
+            }
+
+            return [leadId, ...current].slice(0, 8);
+        });
     };
 
     const closeLeadHistory = (leadId: string) => {
@@ -375,6 +517,31 @@ export default function AdminLeads() {
 
         createLeadMutation.mutate(leadForm);
         closeLeadModal();
+    };
+
+    const handleLeadImport = async (file: File | null) => {
+        if (!file) {
+            return;
+        }
+
+        try {
+            setImportMessage("Reading CSV...");
+            const text = await file.text();
+            const importedLeads = parseLeadCsv(text);
+
+            if (importedLeads.length === 0) {
+                setImportMessage("No valid leads found in CSV.");
+                return;
+            }
+
+            importLeadsMutation.mutate(importedLeads);
+        } catch {
+            setImportMessage("Could not read the CSV file.");
+        } finally {
+            if (importInputRef.current) {
+                importInputRef.current.value = "";
+            }
+        }
     };
 
     const handlePlacesSearch = (event: FormEvent<HTMLFormElement>) => {
@@ -478,13 +645,46 @@ export default function AdminLeads() {
                         </div>
 
                         <div className="flex shrink-0 items-center gap-2 pb-2">
+                            <input
+                                ref={importInputRef}
+                                className="hidden"
+                                type="file"
+                                accept=".csv,text/csv"
+                                onChange={(event) => void handleLeadImport(event.target.files?.[0] || null)}
+                            />
+                            <button
+                                className="flex h-9 items-center gap-2 rounded-lg border border-white/10 bg-white/[0.06] px-3 text-xs font-semibold text-white/70 transition hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                                type="button"
+                                onClick={() => importInputRef.current?.click()}
+                                disabled={importLeadsMutation.isPending}
+                                title="Import leads from CSV"
+                            >
+                                <FiUpload
+                                    className={["size-4", importLeadsMutation.isPending ? "animate-pulse" : ""].join(" ")}
+                                    aria-hidden="true"
+                                />
+                                {importLeadsMutation.isPending ? "Importing" : "Import"}
+                            </button>
+                            <button
+                                className="flex h-9 items-center gap-2 rounded-lg border border-white/10 bg-white/[0.06] px-3 text-xs font-semibold text-white/70 transition hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                                type="button"
+                                onClick={() => reassignNewLeadsMutation.mutate()}
+                                disabled={reassignNewLeadsMutation.isPending || leads.every((lead) => lead.status !== "NEW")}
+                                title="Reassign all new leads"
+                            >
+                                <FiRefreshCw
+                                    className={["size-4", reassignNewLeadsMutation.isPending ? "animate-spin" : ""].join(" ")}
+                                    aria-hidden="true"
+                                />
+                                {reassignNewLeadsMutation.isPending ? "Assigning" : "Reassign new"}
+                            </button>
                             <button
                                 className="flex h-9 items-center gap-2 rounded-lg border border-white/10 bg-white/[0.06] px-3 text-xs font-semibold text-white/70 transition hover:bg-white/10 hover:text-white"
                                 type="button"
                                 onClick={() => setIsPlacesOpen(true)}
                             >
                                 <FiMapPin className="size-4" aria-hidden="true" />
-                                Places
+                                Auto update leads
                             </button>
                             <button
                                 className="flex h-9 items-center gap-2 rounded-lg bg-[linear-gradient(135deg,#842cff,#4a0ebd)] px-3 text-xs font-semibold text-white transition hover:brightness-110"
@@ -496,6 +696,11 @@ export default function AdminLeads() {
                             </button>
                         </div>
                     </div>
+                    {importMessage && (
+                        <p className="pb-2 text-right text-xs font-semibold text-white/45">
+                            {importMessage}
+                        </p>
+                    )}
                 </div>
 
                 <div className="grid h-[calc(100vh-12rem)] min-h-[32rem] gap-5 pt-5 lg:grid-cols-[minmax(16rem,20rem)_1fr]">

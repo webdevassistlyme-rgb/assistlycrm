@@ -6,9 +6,9 @@ export type KnowledgeBaseStatus = "Active" | "Draft" | "Archived";
 export type KnowledgeBaseEntryDocument = {
   entryType: KnowledgeBaseEntryType;
   title: string;
+  category: string;
   description: string;
   scope: string;
-  price: string;
   photoUrls: string[];
   documents: {
     name: string;
@@ -30,9 +30,9 @@ const knowledgeBaseEntrySchema = new Schema<KnowledgeBaseEntryDocument>(
   {
     entryType: { type: String, enum: ["Product", "FAQ"], required: true },
     title: { type: String, trim: true, default: "" },
+    category: { type: String, trim: true, default: "" },
     description: { type: String, trim: true, default: "" },
     scope: { type: String, trim: true, default: "" },
-    price: { type: String, trim: true, default: "" },
     photoUrls: { type: [String], default: [] },
     documents: {
       type: [

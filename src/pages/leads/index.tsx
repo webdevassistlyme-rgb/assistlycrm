@@ -38,13 +38,6 @@ function getLeadActivity(lead: Lead) {
             detail: lead.status === "Follow up" ? "Follow-up is due for this lead." : `Current status is ${lead.status}.`,
             status: "Current",
         },
-        {
-            label: "Next action",
-            detail: lead.followUpAt
-                ? `Follow up ${new Date(lead.followUpAt).toLocaleString()}.`
-                : "Contact the lead and schedule the next step.",
-            status: "Next",
-        },
     ];
 }
 

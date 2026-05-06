@@ -3,26 +3,27 @@ import type { SortOrder } from "mongoose";
 import { Employee } from "../models/Employee";
 import type { PayrollItemCategory, PayrollListItemDocument, PayrollPayType, PayrollStatus } from "../models/Payroll";
 import { PayrollListItem, PayrollRecord } from "../models/Payroll";
+import { getCurrencyCode, getSystemSettings } from "./systemSettingsController";
 
 const categories: PayrollItemCategory[] = ["Payroll Runs", "Payouts", "Deductions", "Tax Settings"];
 const statuses: PayrollStatus[] = ["Paid", "Pending", "Failed", "Completed", "Review", "Applied", "Enabled"];
 const payTypes: PayrollPayType[] = ["Monthly", "Hourly", "Contract"];
 
-const demoRecords = [
-  ["John Smith", "john.smith@example.com", "EMP-1001", "Engineering", 6000, 800, "Paid", "May 12, 2024"],
-  ["Sarah Johnson", "sarah.j@example.com", "EMP-1002", "Marketing", 5500, 750, "Paid", "May 12, 2024"],
-  ["Michael Brown", "michael.b@example.com", "EMP-1003", "Sales", 5000, 700, "Paid", "May 12, 2024"],
-  ["Emily Davis", "emily.d@example.com", "EMP-1004", "Design", 4800, 650, "Pending", "-"],
-  ["David Wilson", "david.w@example.com", "EMP-1005", "Engineering", 6200, 850, "Paid", "May 12, 2024"],
-  ["Jessica Taylor", "jessica.t@example.com", "EMP-1006", "HR", 4600, 600, "Paid", "May 12, 2024"],
-  ["Daniel Martinez", "daniel.m@example.com", "EMP-1007", "Finance", 5800, 780, "Failed", "-"],
-  ["Olivia Anderson", "olivia.a@example.com", "EMP-1008", "Support", 4200, 550, "Pending", "-"],
-  ["James Thomas", "james.t@example.com", "EMP-1009", "Sales", 5100, 680, "Paid", "May 12, 2024"],
-  ["Sophia Lee", "sophia.lee@example.com", "EMP-1010", "Marketing", 4900, 620, "Paid", "May 12, 2024"],
-] as const;
+function currentPeriod(cycle = "Monthly") {
+  const now = new Date();
 
-function currentPeriod() {
-  return new Date().toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  if (cycle === "Weekly") {
+    const weekStart = new Date(now);
+    weekStart.setDate(now.getDate() - now.getDay());
+    return `Week of ${weekStart.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`;
+  }
+
+  if (cycle === "Semi-monthly") {
+    const half = now.getDate() <= 15 ? "1-15" : "16-End";
+    return `${now.toLocaleDateString("en-US", { month: "long", year: "numeric" })} ${half}`;
+  }
+
+  return now.toLocaleDateString("en-US", { month: "long", year: "numeric" });
 }
 
 function todayLabel() {
@@ -34,8 +35,8 @@ function toMoney(value: unknown, fallback = 0) {
   return Number.isFinite(numberValue) && numberValue >= 0 ? Math.round(numberValue * 100) / 100 : fallback;
 }
 
-function formatMoney(value: number) {
-  return value.toLocaleString("en-US", { style: "currency", currency: "USD" });
+async function formatMoney(value: number) {
+  return value.toLocaleString("en-US", { style: "currency", currency: await getCurrencyCode() });
 }
 
 function sanitizeStatus(value: unknown, fallback: PayrollStatus = "Pending") {
@@ -46,38 +47,7 @@ function sanitizePayType(value: unknown) {
   return payTypes.includes(value as PayrollPayType) ? (value as PayrollPayType) : "Monthly";
 }
 
-function estimateGrossPay(role: string, team: string) {
-  const text = `${role} ${team}`.toLowerCase();
-
-  if (text.includes("manager") || text.includes("lead")) return 6200;
-  if (text.includes("sales")) return 5200;
-  if (text.includes("engineer") || text.includes("developer")) return 6500;
-  if (text.includes("finance")) return 5600;
-  if (text.includes("support")) return 4400;
-  return 4800;
-}
-
 async function seedPayroll() {
-  const recordCount = await PayrollRecord.countDocuments();
-
-  if (recordCount === 0) {
-    await PayrollRecord.insertMany(
-      demoRecords.map(([employeeName, email, employeeId, department, grossPay, deductions, status, paidOn]) => ({
-        employeeName,
-        email,
-        employeeId,
-        department,
-        payType: "Monthly",
-        grossPay,
-        deductions,
-        netPay: grossPay - deductions,
-        status,
-        paidOn,
-        payPeriod: "May 2024",
-      }))
-    );
-  }
-
   const itemCount = await PayrollListItem.countDocuments();
 
   if (itemCount > 0) return;
@@ -94,10 +64,71 @@ async function seedPayroll() {
   ]);
 }
 
+async function syncEmployeePayrollRecords(payPeriod = "", deductionPercentage?: number) {
+  const settings = await getSystemSettings();
+  const resolvedPayPeriod = payPeriod || currentPeriod(settings.payrollBillingCycle);
+  const resolvedDeductionPercentage = deductionPercentage ?? settings.payrollDeductionPercentage;
+  const employees = await Employee.find({ status: { $ne: "Archived" } }).sort({ employeeCode: 1 });
+  const records = [];
+
+  for (const employee of employees) {
+    const grossPay = toMoney(employee.salary);
+    const deductions = Math.round(grossPay * (resolvedDeductionPercentage / 100) * 100) / 100;
+    const existingRecords = await PayrollRecord.find({ employeeId: employee.employeeCode, payPeriod: resolvedPayPeriod, isArchived: false }).sort({ updatedAt: -1, createdAt: -1 });
+    const existingRecord = existingRecords[0];
+
+    if (existingRecords.length > 1) {
+      await PayrollRecord.updateMany(
+        { _id: { $in: existingRecords.slice(1).map((record) => record._id) } },
+        { isArchived: true }
+      );
+    }
+
+    if (existingRecord) {
+      if (existingRecord.status === "Pending" || existingRecord.status === "Review") {
+        existingRecord.employeeName = employee.name;
+        existingRecord.email = employee.email;
+        existingRecord.department = employee.team || employee.role || "General";
+        existingRecord.payType = "Monthly";
+        existingRecord.grossPay = grossPay;
+        existingRecord.deductions = deductions;
+        existingRecord.netPay = Math.max(grossPay - deductions, 0);
+        await existingRecord.save();
+      }
+
+      records.push(existingRecord);
+      continue;
+    }
+
+    records.push(
+      await PayrollRecord.create({
+        employeeName: employee.name,
+        email: employee.email,
+        employeeId: employee.employeeCode,
+        department: employee.team || employee.role || "General",
+        payType: "Monthly",
+        grossPay,
+        deductions,
+        netPay: Math.max(grossPay - deductions, 0),
+        status: grossPay > 0 ? "Pending" : "Review",
+        paidOn: "-",
+        payPeriod: resolvedPayPeriod,
+      })
+    );
+  }
+
+  return records;
+}
+
 export async function listPayrollStats(_request: Request, response: Response) {
   await seedPayroll();
-  const records = await PayrollRecord.find({ isArchived: false });
-  const totalEmployees = await Employee.countDocuments({ status: { $ne: "Archived" } });
+  const settings = await getSystemSettings();
+  const payPeriod = currentPeriod(settings.payrollBillingCycle);
+  await syncEmployeePayrollRecords(payPeriod, settings.payrollDeductionPercentage);
+  const activeEmployees = await Employee.find({ status: { $ne: "Archived" } }).select("employeeCode");
+  const activeEmployeeCodes = activeEmployees.map((employee) => employee.employeeCode);
+  const records = await PayrollRecord.find({ isArchived: false, employeeId: { $in: activeEmployeeCodes }, payPeriod });
+  const totalEmployees = activeEmployeeCodes.length;
   const gross = records.reduce((sum, record) => sum + record.grossPay, 0);
   const deductions = records.reduce((sum, record) => sum + record.deductions, 0);
   const net = records.reduce((sum, record) => sum + record.netPay, 0);
@@ -113,13 +144,27 @@ export async function listPayrollStats(_request: Request, response: Response) {
 
 export async function listPayrollRecords(request: Request, response: Response) {
   await seedPayroll();
+  const settings = await getSystemSettings();
+  const showArchived = String(request.query.archived || "") === "true";
+  const requestedPayPeriod = String(request.query.payPeriod || (showArchived ? "" : currentPeriod(settings.payrollBillingCycle))).trim();
+
+  if (!showArchived) {
+    await syncEmployeePayrollRecords(requestedPayPeriod || currentPeriod(settings.payrollBillingCycle), settings.payrollDeductionPercentage);
+  }
+
   const search = String(request.query.search || "").trim();
   const status = String(request.query.status || "");
-  const payPeriod = String(request.query.payPeriod || "");
+  const payPeriod = requestedPayPeriod;
   const sortBy = String(request.query.sortBy || "employeeId");
   const sortDir = String(request.query.sortDir || "asc") === "desc" ? -1 : 1;
   const sortableFields = new Set(["employeeName", "employeeId", "department", "payType", "grossPay", "deductions", "netPay", "status", "paidOn", "payPeriod"]);
-  const filter: Record<string, unknown> = { isArchived: false };
+  const filter: Record<string, unknown> = { isArchived: showArchived };
+
+  if (!showArchived) {
+    const activeEmployees = await Employee.find({ status: { $ne: "Archived" } }).select("employeeCode");
+    const activeEmployeeCodes = activeEmployees.map((employee) => employee.employeeCode);
+    filter.employeeId = { $in: activeEmployeeCodes };
+  }
 
   if (statuses.includes(status as PayrollStatus)) filter.status = status;
   if (payPeriod) filter.payPeriod = payPeriod;
@@ -217,40 +262,33 @@ export async function archivePayrollRecord(request: Request, response: Response)
   response.json(record);
 }
 
-export async function runPayroll(request: Request, response: Response) {
-  const payPeriod = String(request.body.payPeriod || currentPeriod()).trim();
-  const employees = await Employee.find({ status: { $ne: "Archived" } }).sort({ employeeCode: 1 });
-  const created = [];
+export async function restorePayrollRecord(request: Request, response: Response) {
+  const record = await PayrollRecord.findByIdAndUpdate(
+    request.params.id,
+    { isArchived: false },
+    { new: true, runValidators: true }
+  );
 
-  for (const employee of employees) {
-    const exists = await PayrollRecord.exists({ employeeId: employee.employeeCode, payPeriod, isArchived: false });
-    if (exists) continue;
-
-    const grossPay = estimateGrossPay(employee.role, employee.team);
-    const deductions = Math.round(grossPay * 0.13 * 100) / 100;
-    created.push(
-      await PayrollRecord.create({
-        employeeName: employee.name,
-        email: employee.email,
-        employeeId: employee.employeeCode,
-        department: employee.team || employee.role || "General",
-        payType: "Monthly",
-        grossPay,
-        deductions,
-        netPay: grossPay - deductions,
-        status: "Pending",
-        paidOn: "-",
-        payPeriod,
-      })
-    );
+  if (!record) {
+    response.status(404).json({ message: "Payroll record not found" });
+    return;
   }
+
+  response.json(record);
+}
+
+export async function runPayroll(request: Request, response: Response) {
+  const settings = await getSystemSettings();
+  const payPeriod = String(request.body.payPeriod || currentPeriod(settings.payrollBillingCycle)).trim();
+  const records = await syncEmployeePayrollRecords(payPeriod, settings.payrollDeductionPercentage);
+  const created = records.filter((record) => record.payPeriod === payPeriod && record.status !== "Paid");
 
   const netTotal = created.reduce((sum, record) => sum + record.netPay, 0);
   await PayrollListItem.create({
     category: "Payroll Runs",
     name: `${payPeriod} Payroll`,
     second: payPeriod,
-    third: formatMoney(netTotal),
+    third: await formatMoney(netTotal),
     fourth: `${created.length} created`,
     status: created.length > 0 ? "Pending" : "Review",
   });
@@ -261,7 +299,8 @@ export async function runPayroll(request: Request, response: Response) {
 export async function listPayrollItems(request: Request, response: Response) {
   await seedPayroll();
   const category = String(request.query.category || "");
-  const filter: Partial<Pick<PayrollListItemDocument, "category" | "isArchived">> = { isArchived: false };
+  const showArchived = String(request.query.archived || "") === "true";
+  const filter: Partial<Pick<PayrollListItemDocument, "category" | "isArchived">> = { isArchived: showArchived };
 
   if (categories.includes(category as PayrollItemCategory)) {
     filter.category = category as PayrollItemCategory;
@@ -289,6 +328,21 @@ export async function archivePayrollItem(request: Request, response: Response) {
   const item = await PayrollListItem.findByIdAndUpdate(
     request.params.id,
     { isArchived: true },
+    { new: true, runValidators: true }
+  );
+
+  if (!item) {
+    response.status(404).json({ message: "Payroll item not found" });
+    return;
+  }
+
+  response.json(item);
+}
+
+export async function restorePayrollItem(request: Request, response: Response) {
+  const item = await PayrollListItem.findByIdAndUpdate(
+    request.params.id,
+    { isArchived: false },
     { new: true, runValidators: true }
   );
 
