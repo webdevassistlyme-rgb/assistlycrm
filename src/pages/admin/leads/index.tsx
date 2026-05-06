@@ -314,6 +314,7 @@ export default function AdminLeads() {
     const [isScoreSaved, setIsScoreSaved] = useState(false);
     const [followUpDateTime, setFollowUpDateTime] = useState("");
     const [commentDraft, setCommentDraft] = useState("");
+    const [isCommentEditing, setIsCommentEditing] = useState(false);
     const [deleteTarget, setDeleteTarget] = useState<Lead | null>(null);
     const [deleteStep, setDeleteStep] = useState<1 | 2>(1);
     const [importMessage, setImportMessage] = useState("");
@@ -368,6 +369,7 @@ export default function AdminLeads() {
             queryClient.setQueryData<Lead[]>(["leads"], (current = []) =>
                 current.map((currentLead) => (currentLead._id === lead._id ? lead : currentLead))
             );
+            setIsCommentEditing(false);
         },
     });
 
@@ -578,6 +580,7 @@ export default function AdminLeads() {
 
     useEffect(() => {
         setCommentDraft(selectedLead?.notes || "");
+        setIsCommentEditing(false);
     }, [selectedLead?._id, selectedLead?.notes]);
 
     const handleAiSort = () => {
@@ -600,6 +603,10 @@ export default function AdminLeads() {
         }
 
         saveCommentMutation.mutate({ lead: selectedLead, notes: commentDraft });
+    };
+    const cancelCommentEdit = () => {
+        setCommentDraft(selectedLead?.notes || "");
+        setIsCommentEditing(false);
     };
     const handleActivityAction = (action?: string) => {
         if (!selectedLead || !action) {
@@ -973,20 +980,48 @@ export default function AdminLeads() {
                                                 <p className="text-xs font-medium uppercase tracking-[0.14em] text-white/35">Comments</p>
                                                 <p className="mt-1 text-xs text-white/45">Internal lead notes</p>
                                             </div>
-                                            <button
-                                                className="flex h-9 items-center gap-2 rounded-lg border border-white/10 bg-white/[0.06] px-3 text-xs font-semibold text-white/70 transition hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
-                                                type="button"
-                                                onClick={handleSaveComment}
-                                                disabled={!selectedLead || saveCommentMutation.isPending}
-                                            >
-                                                <FiSave className="size-3.5" aria-hidden="true" />
-                                                {saveCommentMutation.isPending ? "Saving" : "Save"}
-                                            </button>
+                                            {isCommentEditing ? (
+                                                <div className="flex items-center gap-2">
+                                                    <button
+                                                        className="flex h-9 items-center gap-2 rounded-lg border border-white/10 bg-white/[0.06] px-3 text-xs font-semibold text-white/70 transition hover:bg-white/10 hover:text-white"
+                                                        type="button"
+                                                        onClick={cancelCommentEdit}
+                                                        disabled={saveCommentMutation.isPending}
+                                                    >
+                                                        Cancel
+                                                    </button>
+                                                    <button
+                                                        className="flex h-9 items-center gap-2 rounded-lg border border-white/10 bg-white/[0.06] px-3 text-xs font-semibold text-white/70 transition hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                                                        type="button"
+                                                        onClick={handleSaveComment}
+                                                        disabled={!selectedLead || saveCommentMutation.isPending}
+                                                    >
+                                                        <FiSave className="size-3.5" aria-hidden="true" />
+                                                        {saveCommentMutation.isPending ? "Saving" : "Save"}
+                                                    </button>
+                                                </div>
+                                            ) : (
+                                                <button
+                                                    className="flex h-9 items-center gap-2 rounded-lg border border-white/10 bg-white/[0.06] px-3 text-xs font-semibold text-white/70 transition hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                                                    type="button"
+                                                    onClick={() => setIsCommentEditing(true)}
+                                                    disabled={!selectedLead}
+                                                >
+                                                    <FiEdit2 className="size-3.5" aria-hidden="true" />
+                                                    Edit
+                                                </button>
+                                            )}
                                         </div>
                                         <textarea
-                                            className="mt-3 min-h-28 w-full resize-y rounded-lg border border-white/10 bg-black/20 p-3 text-sm leading-6 text-white outline-none transition placeholder:text-white/30 focus:border-[#842cff] focus:ring-2 focus:ring-[#842cff]/20"
+                                            className={[
+                                                "mt-3 min-h-28 w-full rounded-lg border border-white/10 bg-black/20 p-3 text-sm leading-6 text-white outline-none transition placeholder:text-white/30",
+                                                isCommentEditing
+                                                    ? "resize-y focus:border-[#842cff] focus:ring-2 focus:ring-[#842cff]/20"
+                                                    : "resize-none cursor-default text-white/85",
+                                            ].join(" ")}
                                             value={commentDraft}
                                             onChange={(event) => setCommentDraft(event.target.value)}
+                                            readOnly={!isCommentEditing}
                                             placeholder="Add comments, objections, call notes, or next-step context..."
                                         />
                                     </div>
