@@ -683,8 +683,8 @@ export default function AdminLeads() {
         <AdminLayout>
             <section className="min-h-[calc(100vh-8.5rem)]">
                 <div className="border-b border-white/10">
-                    <div className="flex h-12 items-end justify-between gap-4 overflow-x-auto">
-                        <div className="flex h-12 items-end gap-6">
+                    <div className="flex flex-col gap-3 py-3 2xl:flex-row 2xl:items-end 2xl:justify-between">
+                        <div className="content-scroll flex min-w-0 items-end gap-5 overflow-x-auto">
                             {tabs.map((tab) => {
                                 const isActive = tab === activeTab;
 
@@ -692,7 +692,7 @@ export default function AdminLeads() {
                                     <button
                                         key={tab}
                                         className={[
-                                            "relative h-12 shrink-0 px-1 text-sm font-medium transition",
+                                            "relative h-10 shrink-0 px-1 text-sm font-medium transition",
                                             isActive ? "text-[#9b5cff]" : "text-white/60 hover:text-white",
                                         ].join(" ")}
                                         type="button"
@@ -705,7 +705,7 @@ export default function AdminLeads() {
                             })}
                         </div>
 
-                        <div className="flex shrink-0 items-center gap-2 pb-2">
+                        <div className="flex shrink-0 flex-wrap items-center gap-2">
                             <input
                                 ref={importInputRef}
                                 className="hidden"
@@ -764,7 +764,7 @@ export default function AdminLeads() {
                     )}
                 </div>
 
-                <div className="grid h-[calc(100vh-12rem)] min-h-[32rem] gap-5 pt-5 lg:grid-cols-[minmax(16rem,20rem)_1fr]">
+                <div className="grid h-[calc(100vh-15rem)] min-h-[24rem] gap-4 pt-4 xl:h-[calc(100vh-14rem)] xl:grid-cols-[minmax(15rem,19rem)_1fr] 2xl:h-[calc(100vh-12rem)] 2xl:gap-5 2xl:pt-5">
                     <section className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-white/10 bg-[#090b13]/80">
                         <div className="flex h-14 items-center justify-between border-b border-white/10 px-5">
                             <div>
