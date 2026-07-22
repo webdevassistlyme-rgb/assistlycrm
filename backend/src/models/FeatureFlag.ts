@@ -1,14 +1,19 @@
-import { Schema, model } from "mongoose";
+import { Schema } from "mongoose";
+import { tenantModel } from "../config/tenancy";
 
 export type FeatureKey =
   | "dashboard"
   | "leads"
+  | "lead-search"
+  | "lead-add"
+  | "lead-categories"
   | "tasks"
   | "tracking"
   | "knowledge-base"
   | "teams"
   | "sales"
   | "calendar"
+  | "attendance"
   | "profile"
   | "settings"
   | "messages"
@@ -37,4 +42,4 @@ const featureFlagSchema = new Schema<FeatureFlagDocument>(
   { timestamps: true }
 );
 
-export const FeatureFlag = model<FeatureFlagDocument>("FeatureFlag", featureFlagSchema);
+export const FeatureFlag = tenantModel<FeatureFlagDocument>("FeatureFlag", featureFlagSchema);

@@ -6,6 +6,8 @@ export type TeamStatus = "Active" | "Review" | "Paused" | "Archived";
 export type Team = {
     _id: string;
     name: string;
+    company: string;
+    department: string;
     lead: Employee | null;
     members: Employee[];
     activeLeads: number;
@@ -14,6 +16,8 @@ export type Team = {
 
 export type TeamInput = {
     name: string;
+    company: string;
+    department: string;
     lead: string | null;
     members: string[];
     activeLeads: number;
@@ -32,5 +36,10 @@ export async function createTeam(team: TeamInput) {
 
 export async function updateTeam(id: string, team: TeamInput) {
     const response = await api.put<Team>(`/teams/${id}`, team);
+    return response.data;
+}
+
+export async function archiveTeam(id: string) {
+    const response = await api.patch<Team>(`/teams/${id}/archive`);
     return response.data;
 }

@@ -5,12 +5,69 @@ import AdminLayout from "../adminLayout";
 import { archiveMediaAsset, getMediaAssets, uploadMediaAsset, type MediaAsset } from "../../../api/media";
 import { getBranches } from "../../../api/branches";
 import { backendOrigin } from "../../../lib/backendUrl";
+import { formatCstDate } from "../../../lib/dateTime";
 
 function getMediaUrl(url: string) {
-    return url.startsWith("http") ? url : `${backendOrigin}${url}`;
+    if (!url) return "";
+    if (/^https?:\/\//i.test(url)) return url;
+
+    const normalizedUrl = url.startsWith("/") ? url : `/${url}`;
+    const legacyMediaPrefix = "/uploads/media/";
+
+    if (normalizedUrl.startsWith(legacyMediaPrefix)) {
+        return `${backendOrigin}/api/media/file/${encodeURIComponent(normalizedUrl.slice(legacyMediaPrefix.length))}`;
+    }
+
+    return `${backendOrigin}${normalizedUrl}`;
 }
 
-function formatBytes(bytes: number) {
+function toDisplayText(value: unknown, fallback = "") {
+    if (typeof value === "string") return value;
+    if (typeof value === "number" || typeof value === "boolean") return String(value);
+
+    if (value && typeof value === "object") {
+        const record = value as Record<string, unknown>;
+        return toDisplayText(record.name || record.title || record.label || record.value || record._id, fallback);
+    }
+
+    return fallback;
+}
+
+function toAssetType(value: unknown, mimeType = ""): MediaAsset["assetType"] {
+    const type = toDisplayText(value);
+
+    if (type === "Image" || type === "Video") {
+        return type;
+    }
+
+    return mimeType.startsWith("video/") ? "Video" : "Image";
+}
+
+function toAssetSize(value: unknown) {
+    const size = Number(value);
+    return Number.isFinite(size) && size > 0 ? Math.round(size) : 0;
+}
+
+function normalizeAsset(asset: MediaAsset): MediaAsset {
+    const mimeType = toDisplayText(asset.mimeType, "application/octet-stream");
+
+    return {
+        ...asset,
+        _id: toDisplayText(asset._id),
+        name: toDisplayText(asset.name, "Media asset"),
+        url: toDisplayText(asset.url),
+        mimeType,
+        assetType: toAssetType(asset.assetType, mimeType),
+        branch: toDisplayText(asset.branch, "All branches"),
+        size: toAssetSize(asset.size),
+        isArchived: Boolean(asset.isArchived),
+        createdAt: toDisplayText(asset.createdAt),
+    };
+}
+
+function formatBytes(value: number) {
+    const bytes = toAssetSize(value);
+
     if (!bytes) return "0 KB";
     const units = ["B", "KB", "MB", "GB"];
     const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
@@ -26,7 +83,6 @@ export default function AdminMedia() {
     const [uploadBranch, setUploadBranch] = useState("");
     const [previewAsset, setPreviewAsset] = useState<MediaAsset | null>(null);
     const [pendingArchive, setPendingArchive] = useState<MediaAsset | null>(null);
-    const [archiveStep, setArchiveStep] = useState<1 | 2>(1);
 
     const { data: assets = [], isLoading, isError } = useQuery({
         queryKey: ["media"],
@@ -36,6 +92,17 @@ export default function AdminMedia() {
         queryKey: ["branches"],
         queryFn: getBranches,
     });
+    const normalizedAssets = useMemo(() => assets.map(normalizeAsset), [assets]);
+    const branchOptions = useMemo(
+        () =>
+            Array.from(
+                new Set([
+                    ...branches.map((branch) => toDisplayText(branch.name)),
+                    ...normalizedAssets.map((asset) => asset.branch),
+                ])
+            ).filter(Boolean).sort(),
+        [branches, normalizedAssets]
+    );
 
     const uploadMutation = useMutation({
         mutationFn: uploadMediaAsset,
@@ -47,14 +114,13 @@ export default function AdminMedia() {
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["media"] });
             setPendingArchive(null);
-            setArchiveStep(1);
         },
     });
 
     const filteredAssets = useMemo(() => {
         const normalizedSearch = search.trim().toLowerCase();
 
-        return assets.filter((asset) => {
+        return normalizedAssets.filter((asset) => {
             const matchesType = activeType === "All" || asset.assetType === activeType;
             const matchesBranch = activeBranch === "All" || asset.branch === activeBranch;
             const matchesSearch =
@@ -63,15 +129,15 @@ export default function AdminMedia() {
                 (asset.branch || "").toLowerCase().includes(normalizedSearch);
             return matchesType && matchesBranch && matchesSearch;
         });
-    }, [activeBranch, activeType, assets, search]);
+    }, [activeBranch, activeType, normalizedAssets, search]);
 
-    const imageCount = assets.filter((asset) => asset.assetType === "Image").length;
-    const videoCount = assets.filter((asset) => asset.assetType === "Video").length;
+    const imageCount = normalizedAssets.filter((asset) => asset.assetType === "Image").length;
+    const videoCount = normalizedAssets.filter((asset) => asset.assetType === "Video").length;
     const previewIndex = previewAsset ? filteredAssets.findIndex((asset) => asset._id === previewAsset._id) : -1;
     const canPreviewPrevious = previewIndex > 0;
     const canPreviewNext = previewIndex >= 0 && previewIndex < filteredAssets.length - 1;
     const statCards = [
-        { label: "Assets", value: assets.length.toString(), meta: "Uploaded files", icon: FiFile },
+        { label: "Assets", value: normalizedAssets.length.toString(), meta: "Uploaded files", icon: FiFile },
         { label: "Images", value: imageCount.toString(), meta: "Photos and graphics", icon: FiImage },
         { label: "Videos", value: videoCount.toString(), meta: "Video assets", icon: FiPlayCircle },
     ];
@@ -79,33 +145,33 @@ export default function AdminMedia() {
     return (
         <AdminLayout>
             <section className="min-h-[calc(100vh-8.5rem)]">
-                <div className="flex flex-wrap items-start justify-between gap-4 border-b border-white/10 pb-4">
+                <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-300 pb-4">
                     <div>
-                        <h2 className="text-2xl font-semibold text-white">Media</h2>
-                        <p className="mt-1 text-sm text-white/50">Upload, preview, and manage images and videos.</p>
+                        <h2 className="text-2xl font-semibold text-slate-950">Media</h2>
+                        <p className="mt-1 text-sm text-slate-600">Upload, preview, and manage images and videos.</p>
                     </div>
                     <div className="flex flex-wrap items-end gap-3">
                         <label>
-                            <span className="mb-2 block text-xs font-medium uppercase tracking-[0.14em] text-white/35">Owning Branch</span>
+                            <span className="mb-2 block text-xs font-medium uppercase tracking-[0.14em] text-slate-600">Owning Branch</span>
                             <select
-                                className="h-11 min-w-[13rem] rounded-lg border border-white/10 bg-[#080b12] px-3 text-sm font-semibold text-white outline-none transition focus:border-[#842cff] focus:ring-2 focus:ring-[#842cff]/20 [&>option]:bg-[#0d1018] [&>option]:text-white"
+                                className="h-11 min-w-[13rem] rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-950 outline-none transition focus:border-[#842cff] focus:ring-2 focus:ring-[#842cff]/20 [&>option]:bg-white [&>option]:text-slate-950"
                                 value={uploadBranch}
                                 onChange={(event) => setUploadBranch(event.target.value)}
                             >
-                                <option className="bg-[#0d1018] text-white" value="">Select branch</option>
-                                {branches.map((branch) => (
-                                    <option className="bg-[#0d1018] text-white" key={branch._id} value={branch.name}>
-                                        {branch.name}
+                                <option className="bg-white text-slate-950" value="">Select branch</option>
+                                {branchOptions.map((branch) => (
+                                    <option className="bg-white text-slate-950" key={branch} value={branch}>
+                                        {branch}
                                     </option>
                                 ))}
                             </select>
                         </label>
                         <label
                             className={[
-                                "flex h-11 items-center gap-2 rounded-lg px-5 text-sm font-semibold text-white transition",
+                                "flex h-11 items-center gap-2 rounded-lg px-5 text-sm font-semibold transition",
                                 uploadBranch && !uploadMutation.isPending
-                                    ? "cursor-pointer bg-[linear-gradient(135deg,#842cff,#4a0ebd)] hover:brightness-110"
-                                    : "cursor-not-allowed bg-white/[0.08] text-white/40",
+                                    ? "cursor-pointer bg-[linear-gradient(135deg,#842cff,#4a0ebd)] text-white hover:brightness-110"
+                                    : "cursor-not-allowed bg-slate-200 text-slate-500",
                             ].join(" ")}
                         >
                             <FiPlus className="size-4" aria-hidden="true" />
@@ -127,16 +193,16 @@ export default function AdminMedia() {
 
                 <div className="mt-4 grid gap-2.5 md:grid-cols-3">
                     {statCards.map(({ label, value, meta, icon: Icon }) => (
-                        <article key={label} className="rounded-lg border border-white/10 bg-[#0c1018]/70 px-4 py-3 shadow-xl shadow-black/10">
+                        <article key={label} className="rounded-lg border border-slate-300 bg-white px-4 py-3 shadow-xl shadow-slate-900/10">
                             <div className="flex items-center gap-3">
-                                <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-[#842cff]/16 text-[#b78cff]">
+                                <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-violet-100 text-[#5f27cd]">
                                     <Icon className="size-4.5" aria-hidden="true" />
                                 </span>
                                 <span className="min-w-0 flex-1">
-                                    <span className="block text-[0.72rem] font-semibold uppercase tracking-[0.1em] text-white/42">{label}</span>
+                                    <span className="block text-[0.72rem] font-semibold uppercase tracking-[0.1em] text-slate-600">{label}</span>
                                     <span className="mt-1 flex items-baseline gap-2">
-                                        <span className="text-lg font-semibold text-white">{value}</span>
-                                        <span className="truncate text-xs text-white/40">{meta}</span>
+                                        <span className="text-lg font-semibold text-slate-950">{value}</span>
+                                        <span className="truncate text-xs text-slate-500">{meta}</span>
                                     </span>
                                 </span>
                             </div>
@@ -144,16 +210,16 @@ export default function AdminMedia() {
                     ))}
                 </div>
 
-                <section className="mt-4 flex max-h-[calc(100vh-22rem)] min-h-[18rem] flex-col overflow-hidden rounded-lg border border-white/10 bg-[#090b13]/80 shadow-2xl shadow-black/20">
-                    <div className="flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-white/10 px-5 py-3">
+                <section className="mt-4 flex max-h-[calc(100vh-22rem)] min-h-[18rem] flex-col overflow-hidden rounded-lg border border-slate-300 bg-white shadow-2xl shadow-slate-900/10">
+                    <div className="flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-slate-300 px-5 py-3">
                         <div>
-                            <h3 className="text-base font-semibold text-white">Media Library</h3>
-                            <p className="mt-1 text-xs text-white/40">Showing {filteredAssets.length} of {assets.length} records</p>
+                            <h3 className="text-base font-semibold text-slate-950">Media Library</h3>
+                            <p className="mt-1 text-xs text-slate-500">Showing {filteredAssets.length} of {normalizedAssets.length} records</p>
                         </div>
                         <div className="flex flex-wrap items-center gap-2">
-                            <label className="flex h-10 min-w-[16rem] items-center gap-2 rounded-lg border border-white/10 bg-black/20 px-3 text-white/45 transition focus-within:border-[#842cff] focus-within:ring-2 focus-within:ring-[#842cff]/20">
+                            <label className="flex h-10 min-w-[16rem] items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 text-slate-500 transition focus-within:border-[#842cff] focus-within:ring-2 focus-within:ring-[#842cff]/20">
                                 <input
-                                    className="h-full min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-white/30"
+                                    className="h-full min-w-0 flex-1 bg-transparent text-sm text-slate-950 outline-none placeholder:text-slate-400"
                                     placeholder="Search media"
                                     type="search"
                                     value={search}
@@ -162,14 +228,14 @@ export default function AdminMedia() {
                                 <FiSearch className="size-4 shrink-0" aria-hidden="true" />
                             </label>
                             <select
-                                className="h-10 min-w-[11rem] rounded-lg border border-white/10 bg-[#080b12] px-3 text-sm font-semibold text-white outline-none transition focus:border-[#842cff] focus:ring-2 focus:ring-[#842cff]/20 [&>option]:bg-[#0d1018] [&>option]:text-white"
+                                className="h-10 min-w-[11rem] rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-950 outline-none transition focus:border-[#842cff] focus:ring-2 focus:ring-[#842cff]/20 [&>option]:bg-white [&>option]:text-slate-950"
                                 value={activeBranch}
                                 onChange={(event) => setActiveBranch(event.target.value)}
                             >
-                                <option className="bg-[#0d1018] text-white" value="All">All branches</option>
-                                {branches.map((branch) => (
-                                    <option className="bg-[#0d1018] text-white" key={branch._id} value={branch.name}>
-                                        {branch.name}
+                                <option className="bg-white text-slate-950" value="All">All branches</option>
+                                {branchOptions.map((branch) => (
+                                    <option className="bg-white text-slate-950" key={branch} value={branch}>
+                                        {branch}
                                     </option>
                                 ))}
                             </select>
@@ -179,8 +245,8 @@ export default function AdminMedia() {
                                     className={[
                                         "h-10 rounded-lg border px-3 text-sm font-semibold transition",
                                         activeType === type
-                                            ? "border-[#842cff] bg-[#842cff]/20 text-white"
-                                            : "border-white/10 bg-white/[0.04] text-white/55 hover:bg-white/[0.07] hover:text-white",
+                                            ? "border-[#842cff] bg-[#842cff]/10 text-[#5f27cd]"
+                                            : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50 hover:text-slate-950",
                                     ].join(" ")}
                                     type="button"
                                     onClick={() => setActiveType(type)}
@@ -188,7 +254,7 @@ export default function AdminMedia() {
                                     {type}
                                 </button>
                             ))}
-                            <div className="flex h-10 overflow-hidden rounded-lg border border-white/10 bg-black/20">
+                            <div className="flex h-10 overflow-hidden rounded-lg border border-slate-300 bg-slate-100">
                                 {(["Thumbnail", "Table"] as const).map((mode) => {
                                     const Icon = mode === "Thumbnail" ? FiGrid : FiList;
                                     return (
@@ -197,8 +263,8 @@ export default function AdminMedia() {
                                             className={[
                                                 "flex h-full items-center gap-2 px-3 text-sm font-semibold transition",
                                                 viewMode === mode
-                                                    ? "bg-[#842cff]/25 text-white"
-                                                    : "text-white/50 hover:bg-white/[0.06] hover:text-white",
+                                                    ? "bg-[#842cff]/20 text-[#5f27cd]"
+                                                    : "text-slate-600 hover:bg-white hover:text-slate-950",
                                             ].join(" ")}
                                             type="button"
                                             onClick={() => setViewMode(mode)}
@@ -214,17 +280,17 @@ export default function AdminMedia() {
                     </div>
 
                     <div className="content-scroll min-h-0 flex-1 overflow-auto p-4">
-                        {uploadMutation.isPending && <p className="mb-3 text-sm font-semibold text-[#9df6b7]">Uploading media...</p>}
-                        {isLoading && <p className="text-sm text-white/45">Loading media...</p>}
-                        {isError && <p className="text-sm text-red-200">Unable to load media.</p>}
+                        {uploadMutation.isPending && <p className="mb-3 text-sm font-semibold text-emerald-700">Uploading media...</p>}
+                        {isLoading && <p className="text-sm text-slate-600">Loading media...</p>}
+                        {isError && <p className="text-sm text-red-700">Unable to load media.</p>}
                         {!isLoading && !isError && filteredAssets.length === 0 && (
-                            <p className="rounded-lg border border-white/10 bg-white/[0.035] p-5 text-sm text-white/45">No media assets yet.</p>
+                            <p className="rounded-lg border border-slate-300 bg-slate-50 p-5 text-sm text-slate-600">No media assets yet.</p>
                         )}
                         {filteredAssets.length > 0 && viewMode === "Thumbnail" && (
                             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">
                                 {filteredAssets.map((asset) => (
-                                    <article key={asset._id} className="overflow-hidden rounded-lg border border-white/10 bg-white/[0.035]">
-                                        <div className="group relative h-24 w-full bg-black/30 sm:h-20">
+                                    <article key={asset._id} className="overflow-hidden rounded-lg border border-slate-300 bg-slate-50">
+                                        <div className="group relative h-24 w-full bg-slate-200 sm:h-20">
                                             <button className="block size-full" type="button" onClick={() => setPreviewAsset(asset)} aria-label={`Preview ${asset.name}`}>
                                             {asset.assetType === "Image" ? (
                                                 <img className="size-full object-cover" src={getMediaUrl(asset.url)} alt={asset.name} />
@@ -246,15 +312,15 @@ export default function AdminMedia() {
                                         <div className="p-3">
                                             <div className="flex items-start justify-between gap-2">
                                                 <div className="min-w-0">
-                                                    <p className="truncate text-sm font-semibold text-white">{asset.name}</p>
-                                                    <p className="mt-1 text-xs text-white/40">{asset.assetType} · {formatBytes(asset.size)}</p>
-                                                    <p className="mt-1 truncate text-xs font-semibold text-[#d8c8ff]">{asset.branch || "No branch"}</p>
+                                                    <p className="truncate text-sm font-semibold text-slate-950">{asset.name}</p>
+                                                    <p className="mt-1 text-xs text-slate-500">{asset.assetType} · {formatBytes(asset.size)}</p>
+                                                    <p className="mt-1 truncate text-xs font-semibold text-slate-700">{asset.branch || "No branch"}</p>
                                                 </div>
-                                                <span className="rounded-md bg-[#842cff]/15 px-2 py-1 text-xs font-semibold text-[#d8c8ff]">{asset.assetType}</span>
+                                                <span className="rounded-md bg-violet-100 px-2 py-1 text-xs font-semibold text-[#5f27cd]">{asset.assetType}</span>
                                             </div>
                                             <div className="mt-3 flex justify-end gap-2">
                                                 <button
-                                                    className="flex size-8 items-center justify-center rounded-lg border border-white/10 bg-white/[0.05] text-white/60 transition hover:bg-white/10 hover:text-white"
+                                                    className="flex size-8 items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-100 hover:text-slate-950"
                                                     type="button"
                                                     onClick={() => setPreviewAsset(asset)}
                                                     aria-label="View media"
@@ -262,12 +328,9 @@ export default function AdminMedia() {
                                                     <FiEye className="size-4" aria-hidden="true" />
                                                 </button>
                                                 <button
-                                                    className="flex size-8 items-center justify-center rounded-lg border border-red-400/20 bg-red-400/10 text-red-100/70 transition hover:bg-red-400/15 hover:text-red-100"
+                                                    className="flex size-8 items-center justify-center rounded-lg border border-rose-300 bg-rose-50 text-rose-700 transition hover:border-rose-400 hover:bg-rose-100 hover:text-rose-800"
                                                     type="button"
-                                                    onClick={() => {
-                                                        setPendingArchive(asset);
-                                                        setArchiveStep(1);
-                                                    }}
+                                                    onClick={() => setPendingArchive(asset)}
                                                     aria-label="Archive media"
                                                 >
                                                     <FiArchive className="size-4" aria-hidden="true" />
@@ -280,7 +343,7 @@ export default function AdminMedia() {
                         )}
                         {filteredAssets.length > 0 && viewMode === "Table" && (
                             <table className="w-full min-w-[58rem] table-fixed border-separate border-spacing-0 text-left">
-                                <thead className="sticky top-0 z-10 bg-[#0d1018] text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-white/35">
+                                <thead className="sticky top-0 z-10 bg-slate-100 text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-slate-600">
                                     <tr>
                                         <th className="w-[34%] px-4 py-3">Media</th>
                                         <th className="w-[16%] px-4 py-3">Branch</th>
@@ -290,13 +353,13 @@ export default function AdminMedia() {
                                         <th className="w-[12%] px-4 py-3 text-right">Actions</th>
                                     </tr>
                                 </thead>
-                                <tbody className="divide-y divide-white/10">
+                                <tbody className="divide-y divide-slate-200">
                                     {filteredAssets.map((asset) => (
-                                        <tr key={asset._id} className="text-sm text-white/75 transition odd:bg-white/[0.015] hover:bg-white/[0.05]">
+                                        <tr key={asset._id} className="text-sm text-slate-700 transition odd:bg-slate-50 hover:bg-slate-100">
                                             <td className="px-4 py-3">
                                                 <div className="flex min-w-0 items-center gap-3">
                                                     <button
-                                                        className="size-12 shrink-0 overflow-hidden rounded-lg border border-white/10 bg-black/30"
+                                                        className="size-12 shrink-0 overflow-hidden rounded-lg border border-slate-300 bg-slate-200"
                                                         type="button"
                                                         onClick={() => setPreviewAsset(asset)}
                                                         aria-label={`Preview ${asset.name}`}
@@ -308,21 +371,21 @@ export default function AdminMedia() {
                                                         )}
                                                     </button>
                                                     <span className="min-w-0">
-                                                        <span className="block truncate font-semibold text-white">{asset.name}</span>
-                                                        <span className="mt-1 block truncate text-xs text-white/35">{asset.mimeType}</span>
+                                                        <span className="block truncate font-semibold text-slate-950">{asset.name}</span>
+                                                        <span className="mt-1 block truncate text-xs text-slate-500">{asset.mimeType}</span>
                                                     </span>
                                                 </div>
                                             </td>
-                                            <td className="truncate px-4 py-3 font-semibold text-[#d8c8ff]">{asset.branch || "No branch"}</td>
+                                            <td className="truncate px-4 py-3 font-semibold text-slate-700">{asset.branch || "No branch"}</td>
                                             <td className="px-4 py-3">{asset.assetType}</td>
                                             <td className="px-4 py-3">{formatBytes(asset.size)}</td>
-                                            <td className="px-4 py-3 text-white/55">
-                                                {asset.createdAt ? new Date(asset.createdAt).toLocaleDateString() : "-"}
+                                            <td className="px-4 py-3 text-slate-500">
+                                                {asset.createdAt ? formatCstDate(asset.createdAt) : "-"}
                                             </td>
                                             <td className="px-4 py-3">
                                                 <div className="flex justify-end gap-2">
                                                     <a
-                                                        className="flex size-8 items-center justify-center rounded-lg border border-white/10 bg-white/[0.05] text-white/60 transition hover:bg-white/10 hover:text-white"
+                                                        className="flex size-8 items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-100 hover:text-slate-950"
                                                         href={getMediaUrl(asset.url)}
                                                         download={asset.name}
                                                         aria-label="Download media"
@@ -330,7 +393,7 @@ export default function AdminMedia() {
                                                         <FiDownload className="size-4" aria-hidden="true" />
                                                     </a>
                                                     <button
-                                                        className="flex size-8 items-center justify-center rounded-lg border border-white/10 bg-white/[0.05] text-white/60 transition hover:bg-white/10 hover:text-white"
+                                                        className="flex size-8 items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-100 hover:text-slate-950"
                                                         type="button"
                                                         onClick={() => setPreviewAsset(asset)}
                                                         aria-label="View media"
@@ -338,12 +401,9 @@ export default function AdminMedia() {
                                                         <FiEye className="size-4" aria-hidden="true" />
                                                     </button>
                                                     <button
-                                                        className="flex size-8 items-center justify-center rounded-lg border border-red-400/20 bg-red-400/10 text-red-100/70 transition hover:bg-red-400/15 hover:text-red-100"
+                                                        className="flex size-8 items-center justify-center rounded-lg border border-rose-300 bg-rose-50 text-rose-700 transition hover:border-rose-400 hover:bg-rose-100 hover:text-rose-800"
                                                         type="button"
-                                                        onClick={() => {
-                                                            setPendingArchive(asset);
-                                                            setArchiveStep(1);
-                                                        }}
+                                                        onClick={() => setPendingArchive(asset)}
                                                         aria-label="Archive media"
                                                     >
                                                         <FiArchive className="size-4" aria-hidden="true" />
@@ -359,7 +419,14 @@ export default function AdminMedia() {
                 </section>
 
                 {previewAsset && (
-                    <div className="modal-backdrop-enter fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm">
+                    <div
+                        className="modal-backdrop-enter fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm"
+                        onMouseDown={(event) => {
+                            if (event.target === event.currentTarget) {
+                                setPreviewAsset(null);
+                            }
+                        }}
+                    >
                         <div className="modal-panel-enter flex max-h-[88vh] w-full max-w-[60rem] flex-col overflow-hidden rounded-lg border border-white/10 bg-[#0d1018] shadow-2xl shadow-black/40">
                             <div className="flex items-center justify-between border-b border-white/10 px-5 py-3.5">
                                 <div className="min-w-0">
@@ -415,7 +482,14 @@ export default function AdminMedia() {
                 )}
 
                 {pendingArchive && (
-                    <div className="modal-backdrop-enter fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm">
+                    <div
+                        className="modal-backdrop-enter fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm"
+                        onMouseDown={(event) => {
+                            if (event.target === event.currentTarget) {
+                                setPendingArchive(null);
+                            }
+                        }}
+                    >
                         <div className="modal-panel-enter w-full max-w-[30rem] overflow-hidden rounded-lg border border-red-300/20 bg-[#101018] shadow-2xl shadow-red-950/30">
                             <div className="border-b border-red-300/15 bg-[linear-gradient(135deg,rgba(239,68,68,0.16),rgba(132,44,255,0.12))] px-5 py-4">
                                 <div className="flex items-start gap-3">
@@ -424,19 +498,17 @@ export default function AdminMedia() {
                                     </span>
                                     <div className="min-w-0">
                                         <p className="text-xs font-semibold uppercase tracking-[0.16em] text-red-100/55">
-                                            {archiveStep === 1 ? "Confirm archive" : "Final warning"}
+                                            Confirm archive
                                         </p>
                                         <h3 className="mt-1 text-lg font-semibold text-white">
-                                            {archiveStep === 1 ? "Archive this media asset?" : "You are archiving this asset"}
+                                            Are you sure?
                                         </h3>
                                     </div>
                                 </div>
                             </div>
                             <div className="px-5 py-4">
                                 <p className="text-sm leading-6 text-white/62">
-                                    {archiveStep === 1
-                                        ? `"${pendingArchive.name}" will be removed from the media library.`
-                                        : `This will hide "${pendingArchive.name}" from admins and any future media selection lists.`}
+                                    Are you sure you want to archive "{pendingArchive.name}"?
                                 </p>
                                 <div className="mt-4 rounded-lg border border-white/10 bg-black/24 p-3">
                                     <p className="truncate text-sm font-semibold text-white">{pendingArchive.name}</p>
@@ -449,7 +521,6 @@ export default function AdminMedia() {
                                     type="button"
                                     onClick={() => {
                                         setPendingArchive(null);
-                                        setArchiveStep(1);
                                     }}
                                 >
                                     Cancel
@@ -458,15 +529,9 @@ export default function AdminMedia() {
                                     className="h-10 rounded-lg border border-red-300/25 bg-red-500/18 px-4 text-sm font-semibold text-red-100 transition hover:bg-red-500/25 disabled:cursor-not-allowed disabled:opacity-60"
                                     type="button"
                                     disabled={archiveMutation.isPending}
-                                    onClick={() => {
-                                        if (archiveStep === 1) {
-                                            setArchiveStep(2);
-                                            return;
-                                        }
-                                        archiveMutation.mutate(pendingArchive._id);
-                                    }}
+                                    onClick={() => archiveMutation.mutate(pendingArchive._id)}
                                 >
-                                    {archiveStep === 1 ? "Continue" : archiveMutation.isPending ? "Archiving..." : "Archive media"}
+                                    {archiveMutation.isPending ? "Archiving..." : "Archive media"}
                                 </button>
                             </div>
                         </div>

@@ -43,7 +43,7 @@ export async function createTool(request: Request, response: Response) {
 
 export async function updateTool(request: Request, response: Response) {
   const tool = await Tool.findByIdAndUpdate(request.params.id, getToolInput(request), {
-    new: true,
+    returnDocument: "after",
     runValidators: true,
   });
 
@@ -59,7 +59,7 @@ export async function archiveTool(request: Request, response: Response) {
   const tool = await Tool.findByIdAndUpdate(
     request.params.id,
     { isArchived: true },
-    { new: true, runValidators: true }
+    { returnDocument: "after", runValidators: true }
   );
 
   if (!tool) {

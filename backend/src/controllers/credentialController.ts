@@ -1,13 +1,25 @@
 import type { Request, Response } from "express";
-import { Credential } from "../models/Credential";
+import { Credential, type CredentialStatus } from "../models/Credential";
+
+function toText(value: unknown, fallback = "") {
+  const text = String(value || "").trim();
+  return text || fallback;
+}
+
+function toCredentialStatus(value: unknown): CredentialStatus {
+  const status = toText(value, "Active");
+  return ["Active", "Review", "Archived"].includes(status) ? status as CredentialStatus : "Active";
+}
 
 function getCredentialInput(request: Request) {
   return {
-    username: request.body.username,
-    password: request.body.password,
-    platform: request.body.platform,
-    company: request.body.company || "General",
-    status: request.body.status || "Active",
+    accountName: toText(request.body.accountName),
+    username: toText(request.body.username),
+    password: toText(request.body.password),
+    platform: toText(request.body.platform),
+    company: toText(request.body.company, "General"),
+    team: toText(request.body.team, "All teams"),
+    status: toCredentialStatus(request.body.status),
   };
 }
 
@@ -20,24 +32,30 @@ export async function seedCredentials() {
 
   await Credential.insertMany([
     {
+      accountName: "Assistly Admin",
       username: "admin@assistly.com",
       password: "Assistly#2026",
       platform: "Google Workspace",
       company: "Assistly HQ",
+      team: "All teams",
       status: "Active",
     },
     {
+      accountName: "Billing Team",
       username: "billing@assistly.com",
       password: "Billing#8842",
       platform: "Stripe",
       company: "Finance",
+      team: "Finance",
       status: "Review",
     },
     {
+      accountName: "Sales Ops",
       username: "sales.ops",
       password: "SalesOps#4421",
       platform: "CRM Admin",
       company: "Sales Branch",
+      team: "Sales",
       status: "Active",
     },
   ]);
@@ -45,8 +63,19 @@ export async function seedCredentials() {
 
 export async function listCredentials(_request: Request, response: Response) {
   await seedCredentials();
-  const credentials = await Credential.find({ status: { $ne: "Archived" } }).sort({ updatedAt: -1 });
-  response.json(credentials);
+  const credentials = await Credential.find({ status: { $ne: "Archived" } }).sort({ updatedAt: -1 }).lean();
+  response.json(
+    credentials.map((credential) => ({
+      ...credential,
+      accountName: toText(credential.accountName),
+      username: toText(credential.username),
+      password: toText(credential.password),
+      platform: toText(credential.platform),
+      company: toText(credential.company, "General"),
+      team: toText(credential.team, "All teams"),
+      status: toCredentialStatus(credential.status),
+    }))
+  );
 }
 
 export async function createCredential(request: Request, response: Response) {
@@ -63,7 +92,7 @@ export async function createCredential(request: Request, response: Response) {
 
 export async function updateCredential(request: Request, response: Response) {
   const credential = await Credential.findByIdAndUpdate(request.params.id, getCredentialInput(request), {
-    new: true,
+    returnDocument: "after",
     runValidators: true,
   });
 
@@ -79,7 +108,7 @@ export async function archiveCredential(request: Request, response: Response) {
   const credential = await Credential.findByIdAndUpdate(
     request.params.id,
     { status: "Archived" },
-    { new: true, runValidators: true }
+    { returnDocument: "after", runValidators: true }
   );
 
   if (!credential) {

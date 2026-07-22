@@ -10,6 +10,15 @@ export type Notice = {
     severity: NoticeSeverity;
     issuedBy: string;
     isRead: boolean;
+    href?: string;
+    source?: string;
+    sourceId?: string;
+    acknowledgedAt?: string;
+    replies?: {
+        _id?: string;
+        message: string;
+        createdAt: string;
+    }[];
     createdAt: string;
 };
 
@@ -18,6 +27,9 @@ export type NoticeInput = {
     message: string;
     severity: NoticeSeverity;
     issuedBy: string;
+    href?: string;
+    source?: string;
+    sourceId?: string;
 };
 
 export async function getEmployeeNotices(employeeId: string) {
@@ -35,8 +47,28 @@ export async function createEmployeeNotice(employeeId: string, notice: NoticeInp
     return response.data;
 }
 
+export async function updateEmployeeNotice(employeeId: string, noticeId: string, notice: NoticeInput) {
+    const response = await api.patch<Notice>(`/employees/${employeeId}/notices/${noticeId}`, notice);
+    return response.data;
+}
+
+export async function deleteEmployeeNotice(employeeId: string, noticeId: string) {
+    const response = await api.delete<{ deletedCount: number }>(`/employees/${employeeId}/notices/${noticeId}`);
+    return response.data;
+}
+
 export async function markEmployeeNoticeRead(employeeId: string, noticeId: string) {
     const response = await api.patch<Notice>(`/employees/${employeeId}/notices/${noticeId}/read`);
+    return response.data;
+}
+
+export async function acknowledgeEmployeeNotice(employeeId: string, noticeId: string) {
+    const response = await api.patch<Notice>(`/employees/${employeeId}/notices/${noticeId}/acknowledge`);
+    return response.data;
+}
+
+export async function replyToEmployeeNotice(employeeId: string, noticeId: string, message: string) {
+    const response = await api.post<Notice>(`/employees/${employeeId}/notices/${noticeId}/replies`, { message });
     return response.data;
 }
 

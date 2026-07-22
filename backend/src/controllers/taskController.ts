@@ -38,6 +38,17 @@ export async function listTasks(request: Request, response: Response) {
   response.json(tasks);
 }
 
+export async function getTask(request: Request, response: Response) {
+  const task = await Task.findOne({ _id: request.params.id, isArchived: false }).populate(populateTask);
+
+  if (!task) {
+    response.status(404).json({ message: "Task not found" });
+    return;
+  }
+
+  response.json(task);
+}
+
 export async function createTask(request: Request, response: Response) {
   const task = await Task.create({
     title: request.body.title,
@@ -67,7 +78,7 @@ export async function updateTask(request: Request, response: Response) {
       dueAt: cleanDate(request.body.dueAt),
       completedAt: status === "Done" ? new Date() : null,
     },
-    { new: true, runValidators: true }
+    { returnDocument: "after", runValidators: true }
   ).populate(populateTask);
 
   if (!task) {
@@ -83,7 +94,7 @@ export async function updateTaskStatus(request: Request, response: Response) {
   const task = await Task.findByIdAndUpdate(
     request.params.id,
     { status, completedAt: status === "Done" ? new Date() : null },
-    { new: true, runValidators: true }
+    { returnDocument: "after", runValidators: true }
   ).populate(populateTask);
 
   if (!task) {
@@ -94,11 +105,44 @@ export async function updateTaskStatus(request: Request, response: Response) {
   response.json(task);
 }
 
+export async function addTaskComment(request: Request, response: Response) {
+  const body = String(request.body.body || "").trim();
+
+  if (!body) {
+    response.status(400).json({ message: "Comment body is required" });
+    return;
+  }
+
+  const authorType = request.body.authorType === "admin" ? "admin" : "employee";
+  const authorName = String(request.body.authorName || (authorType === "admin" ? "Admin" : "Employee")).trim() || "Employee";
+  const task = await Task.findOneAndUpdate(
+    { _id: request.params.id, isArchived: false },
+    {
+      $push: {
+        comments: {
+          authorName,
+          authorType,
+          body,
+          createdAt: new Date(),
+        },
+      },
+    },
+    { returnDocument: "after", runValidators: true }
+  ).populate(populateTask);
+
+  if (!task) {
+    response.status(404).json({ message: "Task not found" });
+    return;
+  }
+
+  response.status(201).json(task);
+}
+
 export async function archiveTask(request: Request, response: Response) {
   const task = await Task.findByIdAndUpdate(
     request.params.id,
     { isArchived: true },
-    { new: true, runValidators: true }
+    { returnDocument: "after", runValidators: true }
   ).populate(populateTask);
 
   if (!task) {

@@ -1,6 +1,7 @@
 import { Router } from "express";
 import {
   createDirectConversation,
+  createMessage,
   createTeamConversation,
   listConversations,
   listMessages,
@@ -12,3 +13,4 @@ messageRouter.get("/conversations", listConversations);
 messageRouter.post("/conversations/direct", createDirectConversation);
 messageRouter.post("/conversations/team", createTeamConversation);
 messageRouter.get("/conversations/:conversationId/messages", listMessages);
+messageRouter.post("/conversations/:conversationId/messages", createMessage);

@@ -3,12 +3,16 @@ import { api } from "../lib/api";
 export type Role = {
     _id: string;
     name: string;
+    department: string;
+    branch: string;
     description: string;
     isArchived: boolean;
 };
 
 export type RoleInput = {
     name: string;
+    department: string;
+    branch: string;
     description: string;
 };
 

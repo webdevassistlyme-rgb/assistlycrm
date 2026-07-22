@@ -1,25 +1,54 @@
 import type { FormEvent } from "react";
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FiPlus, FiSearch, FiTrash2, FiX } from "react-icons/fi";
+import { useNavigate } from "react-router";
+import { FiEdit2, FiPlus, FiSearch, FiTrash2, FiX } from "react-icons/fi";
 import AdminLayout from "../adminLayout";
 import { getEmployees } from "../../../api/employees";
-import { archiveTask, createTask, getTasks, updateTaskStatus, type CrmTask, type TaskInput, type TaskPriority, type TaskStatus } from "../../../api/tasks";
+import { archiveTask, createTask, getTasks, updateTask, updateTaskStatus, type CrmTask, type TaskInput, type TaskPriority, type TaskStatus } from "../../../api/tasks";
+import { formatCstDateTime, formatCstDateTimeInput, parseCstDateTimeInput } from "../../../lib/dateTime";
+import { roleWorkspacePath } from "../../../lib/roleAccess";
 
 const statuses: TaskStatus[] = ["Todo", "In Progress", "Done", "Blocked"];
 const priorities: TaskPriority[] = ["Low", "Medium", "High", "Urgent"];
 const emptyTask: TaskInput = { title: "", description: "", relatedLead: null, assignedTo: null, status: "Todo", priority: "Medium", dueAt: null };
 
+function getTaskInput(task: CrmTask): TaskInput {
+    return {
+        title: task.title,
+        description: task.description || "",
+        relatedLead: task.relatedLead?._id || null,
+        assignedTo: task.assignedTo?._id || null,
+        status: task.status,
+        priority: task.priority,
+        dueAt: task.dueAt,
+    };
+}
+
 export default function AdminTasks() {
+    const navigate = useNavigate();
     const queryClient = useQueryClient();
     const [search, setSearch] = useState("");
     const [isModalOpen, setIsModalOpen] = useState(false);
+    const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
     const [taskForm, setTaskForm] = useState<TaskInput>(emptyTask);
 
     const { data: tasks = [], isLoading, isError } = useQuery({ queryKey: ["tasks", search], queryFn: () => getTasks({ search }) });
     const { data: employees = [] } = useQuery({ queryKey: ["employees"], queryFn: getEmployees });
     const refreshTasks = () => queryClient.invalidateQueries({ queryKey: ["tasks"] });
-    const createTaskMutation = useMutation({ mutationFn: createTask, onSuccess: () => { refreshTasks(); setIsModalOpen(false); setTaskForm(emptyTask); } });
+    const closeTaskModal = () => {
+        setIsModalOpen(false);
+        setEditingTaskId(null);
+        setTaskForm(emptyTask);
+    };
+    const createTaskMutation = useMutation({ mutationFn: createTask, onSuccess: () => { refreshTasks(); closeTaskModal(); } });
+    const updateTaskMutation = useMutation({
+        mutationFn: ({ id, task }: { id: string; task: TaskInput }) => updateTask(id, task),
+        onSuccess: () => {
+            refreshTasks();
+            closeTaskModal();
+        },
+    });
     const updateStatusMutation = useMutation({ mutationFn: ({ id, status }: { id: string; status: TaskStatus }) => updateTaskStatus(id, status), onSuccess: refreshTasks });
     const archiveTaskMutation = useMutation({ mutationFn: archiveTask, onSuccess: refreshTasks });
 
@@ -31,8 +60,26 @@ export default function AdminTasks() {
     const saveTask = (event: FormEvent<HTMLFormElement>) => {
         event.preventDefault();
         if (!taskForm.title.trim()) return;
+        if (editingTaskId) {
+            updateTaskMutation.mutate({ id: editingTaskId, task: taskForm });
+            return;
+        }
         createTaskMutation.mutate(taskForm);
     };
+
+    const openAddTask = () => {
+        setEditingTaskId(null);
+        setTaskForm(emptyTask);
+        setIsModalOpen(true);
+    };
+
+    const openEditTask = (task: CrmTask) => {
+        setEditingTaskId(task._id);
+        setTaskForm(getTaskInput(task));
+        setIsModalOpen(true);
+    };
+
+    const isSavingTask = createTaskMutation.isPending || updateTaskMutation.isPending;
 
     return (
         <AdminLayout>
@@ -47,7 +94,7 @@ export default function AdminTasks() {
                             <input className="h-full min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-white/35" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search tasks..." />
                             <FiSearch className="size-4" />
                         </label>
-                        <button className="flex h-11 items-center gap-2 rounded-lg bg-[linear-gradient(135deg,#842cff,#4a0ebd)] px-5 text-sm font-semibold text-white" type="button" onClick={() => setIsModalOpen(true)}>
+                        <button className="flex h-11 items-center gap-2 rounded-lg bg-[linear-gradient(135deg,#842cff,#4a0ebd)] px-5 text-sm font-semibold text-white" type="button" onClick={openAddTask}>
                             <FiPlus className="size-4" /> Add Task
                         </button>
                     </div>
@@ -79,7 +126,14 @@ export default function AdminTasks() {
                                 {isLoading && <tr><td className="px-4 py-5 text-sm text-white/45" colSpan={6}>Loading tasks...</td></tr>}
                                 {isError && <tr><td className="px-4 py-5 text-sm text-red-200" colSpan={6}>Unable to load tasks.</td></tr>}
                                 {tasks.map((task) => (
-                                    <TaskRow key={task._id} task={task} onStatus={(status) => updateStatusMutation.mutate({ id: task._id, status })} onArchive={() => archiveTaskMutation.mutate(task._id)} />
+                                    <TaskRow
+                                        key={task._id}
+                                        task={task}
+                                        onOpen={() => navigate(roleWorkspacePath(`/admin/tasks/${task._id}`))}
+                                        onEdit={() => openEditTask(task)}
+                                        onStatus={(status) => updateStatusMutation.mutate({ id: task._id, status })}
+                                        onArchive={() => archiveTaskMutation.mutate(task._id)}
+                                    />
                                 ))}
                             </tbody>
                         </table>
@@ -87,14 +141,21 @@ export default function AdminTasks() {
                 </section>
 
                 {isModalOpen && (
-                    <div className="modal-backdrop-enter fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm">
+                    <div
+                        className="modal-backdrop-enter fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm"
+                        onMouseDown={(event) => {
+                            if (event.target === event.currentTarget) {
+                                closeTaskModal();
+                            }
+                        }}
+                    >
                         <form className="modal-panel-enter w-full max-w-[34rem] rounded-lg border border-white/10 bg-[#0d1018] shadow-2xl shadow-black/40" onSubmit={saveTask}>
                             <div className="flex items-center justify-between border-b border-white/10 px-5 py-3.5">
                                 <div>
-                                    <h3 className="text-base font-semibold text-white">Add Task</h3>
-                                    <p className="mt-1 text-sm text-white/45">Create task and assign it to an employee.</p>
+                                    <h3 className="text-base font-semibold text-white">{editingTaskId ? "Edit Task" : "Add Task"}</h3>
+                                    <p className="mt-1 text-sm text-white/45">{editingTaskId ? "Update the task details, assignee, priority, and due date." : "Create task and assign it to an employee."}</p>
                                 </div>
-                                <button className="flex size-8 items-center justify-center rounded-lg border border-white/10 bg-white/[0.05] text-white/60" type="button" onClick={() => setIsModalOpen(false)}><FiX /></button>
+                                <button className="flex size-8 items-center justify-center rounded-lg border border-white/10 bg-white/[0.05] text-white/60" type="button" onClick={closeTaskModal}><FiX /></button>
                             </div>
                             <div className="grid gap-4 p-5">
                                 <input className="h-11 rounded-lg border border-white/10 bg-black/20 px-3 text-sm font-semibold text-white outline-none" value={taskForm.title} onChange={(event) => setTaskForm((task) => ({ ...task, title: event.target.value }))} placeholder="Task title" />
@@ -110,12 +171,19 @@ export default function AdminTasks() {
                                     <select className="h-11 rounded-lg border border-white/10 bg-[#0d1018] px-3 text-sm font-semibold text-white outline-none" value={taskForm.status} onChange={(event) => setTaskForm((task) => ({ ...task, status: event.target.value as TaskStatus }))}>
                                         {statuses.map((status) => <option key={status}>{status}</option>)}
                                     </select>
-                                    <input className="h-11 rounded-lg border border-white/10 bg-black/20 px-3 text-sm font-semibold text-white outline-none" type="datetime-local" onChange={(event) => setTaskForm((task) => ({ ...task, dueAt: event.target.value ? new Date(event.target.value).toISOString() : null }))} />
+                                    <input
+                                        className="h-11 rounded-lg border border-white/10 bg-black/20 px-3 text-sm font-semibold text-white outline-none"
+                                        type="datetime-local"
+                                        value={formatCstDateTimeInput(taskForm.dueAt)}
+                                        onChange={(event) => setTaskForm((task) => ({ ...task, dueAt: event.target.value ? parseCstDateTimeInput(event.target.value)?.toISOString() || null : null }))}
+                                    />
                                 </div>
                             </div>
                             <div className="flex justify-end gap-2 border-t border-white/10 px-5 py-3">
-                                <button className="h-10 rounded-lg border border-white/10 bg-white/[0.05] px-4 text-sm font-semibold text-white/60" type="button" onClick={() => setIsModalOpen(false)}>Cancel</button>
-                                <button className="h-10 rounded-lg bg-[linear-gradient(135deg,#842cff,#4a0ebd)] px-4 text-sm font-semibold text-white" type="submit">Create Task</button>
+                                <button className="h-10 rounded-lg border border-white/10 bg-white/[0.05] px-4 text-sm font-semibold text-white/60" type="button" onClick={closeTaskModal}>Cancel</button>
+                                <button className="h-10 rounded-lg bg-[linear-gradient(135deg,#842cff,#4a0ebd)] px-4 text-sm font-semibold text-white disabled:opacity-60" type="submit" disabled={isSavingTask}>
+                                    {editingTaskId ? "Save Changes" : "Create Task"}
+                                </button>
                             </div>
                         </form>
                     </div>
@@ -125,20 +193,44 @@ export default function AdminTasks() {
     );
 }
 
-function TaskRow({ task, onStatus, onArchive }: { task: CrmTask; onStatus: (status: TaskStatus) => void; onArchive: () => void }) {
+function TaskRow({ task, onOpen, onEdit, onStatus, onArchive }: { task: CrmTask; onOpen: () => void; onEdit: () => void; onStatus: (status: TaskStatus) => void; onArchive: () => void }) {
     return (
-        <tr className="text-sm text-white/78 transition hover:bg-white/[0.035]">
+        <tr className="cursor-pointer text-sm text-white/78 transition hover:bg-white/[0.035]" onClick={onOpen}>
             <td className="px-4 py-4"><p className="font-semibold text-white">{task.title}</p><p className="mt-1 truncate text-xs text-white/42">{task.description || "No description"}</p></td>
             <td className="px-4 py-4 text-white/65">{task.assignedTo?.name || "Unassigned"}</td>
             <td className="px-4 py-4 text-white/75">{task.priority}</td>
-            <td className="px-4 py-4 text-white/65">{task.dueAt ? new Date(task.dueAt).toLocaleString() : "-"}</td>
+            <td className="px-4 py-4 text-white/65">{task.dueAt ? formatCstDateTime(task.dueAt) : "-"}</td>
             <td className="px-4 py-4">
-                <select className="h-9 rounded-lg border border-white/10 bg-[#0d1018] px-2 text-xs font-semibold text-white outline-none" value={task.status} onChange={(event) => onStatus(event.target.value as TaskStatus)}>
+                <select
+                    className="h-9 rounded-lg border border-white/10 bg-[#0d1018] px-2 text-xs font-semibold text-white outline-none"
+                    value={task.status}
+                    onClick={(event) => event.stopPropagation()}
+                    onChange={(event) => onStatus(event.target.value as TaskStatus)}
+                >
                     {statuses.map((status) => <option key={status}>{status}</option>)}
                 </select>
             </td>
             <td className="px-4 py-4 text-right">
-                <button className="inline-flex size-8 items-center justify-center rounded-lg text-red-100/65 transition hover:bg-red-400/10 hover:text-red-100" type="button" onClick={onArchive} aria-label={`Archive ${task.title}`}>
+                <button
+                    className="inline-flex size-8 items-center justify-center rounded-lg text-white/55 transition hover:bg-white/10 hover:text-white"
+                    type="button"
+                    onClick={(event) => {
+                        event.stopPropagation();
+                        onEdit();
+                    }}
+                    aria-label={`Edit ${task.title}`}
+                >
+                    <FiEdit2 className="size-4" />
+                </button>
+                <button
+                    className="inline-flex size-8 items-center justify-center rounded-lg text-red-100/65 transition hover:bg-red-400/10 hover:text-red-100"
+                    type="button"
+                    onClick={(event) => {
+                        event.stopPropagation();
+                        onArchive();
+                    }}
+                    aria-label={`Archive ${task.title}`}
+                >
                     <FiTrash2 className="size-4" />
                 </button>
             </td>

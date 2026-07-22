@@ -1,8 +1,83 @@
 import type { Request, Response } from "express";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { KnowledgeBaseEntry, type KnowledgeBaseEntryType } from "../models/KnowledgeBaseEntry";
 import { KnowledgeBaseSuggestion } from "../models/KnowledgeBaseSuggestion";
+import { Employee } from "../models/Employee";
+import { Notice } from "../models/Notice";
+
+const controllerDirectory = path.dirname(fileURLToPath(import.meta.url));
+const backendRootDirectory = path.resolve(controllerDirectory, "..", "..");
+const knowledgeBaseUploadRoot = path.resolve(backendRootDirectory, "public", "uploads", "knowledge-base");
+
+type AnnouncementNoticeEntry = {
+  _id: { toString(): string };
+  entryType: KnowledgeBaseEntryType;
+  status: string;
+  title: string;
+  description: string;
+};
+
+function knowledgeBasePhotoUrl(fileName: string) {
+  return `/uploads/knowledge-base/${fileName}`;
+}
+
+function knowledgeBaseDocumentUrl(fileName: string) {
+  return `/api/knowledge-base/documents/file/${fileName}`;
+}
+
+function isSafeKnowledgeBaseFileName(value: string) {
+  return /^[a-z0-9_.-]+$/i.test(value) && !value.includes("..");
+}
+
+function knowledgeBaseUploadCandidates(subdirectory = "") {
+  const segments = subdirectory ? ["knowledge-base", subdirectory] : ["knowledge-base"];
+
+  return Array.from(
+    new Set([
+      path.resolve(backendRootDirectory, "public", "uploads", ...segments),
+      path.resolve(process.cwd(), "uploads", ...segments),
+      path.resolve(process.cwd(), "public", "uploads", ...segments),
+      path.resolve(process.cwd(), "backend", "uploads", ...segments),
+      path.resolve(process.cwd(), "backend", "public", "uploads", ...segments),
+      path.resolve(process.cwd(), "..", "uploads", ...segments),
+    ])
+  );
+}
+
+async function serveKnowledgeBaseFile(request: Request, response: Response, subdirectory = "") {
+  const fileName = String(request.params.fileName || "").trim().slice(0, 260);
+
+  if (!isSafeKnowledgeBaseFileName(fileName)) {
+    response.status(400).json({ message: "Invalid knowledge base file path" });
+    return;
+  }
+
+  for (const uploadDirectory of knowledgeBaseUploadCandidates(subdirectory)) {
+    const root = path.resolve(uploadDirectory);
+    const filePath = path.resolve(root, fileName);
+
+    if (!filePath.startsWith(`${root}${path.sep}`)) {
+      continue;
+    }
+
+    try {
+      const fileStat = await stat(filePath);
+      if (!fileStat.isFile()) {
+        continue;
+      }
+
+      response.setHeader("Cache-Control", "private, max-age=3600");
+      response.sendFile(filePath);
+      return;
+    } catch {
+      // Try the next deployment layout.
+    }
+  }
+
+  response.status(404).json({ message: "Knowledge base file not found" });
+}
 
 function normalizePhotoUrls(value: unknown) {
   if (Array.isArray(value)) {
@@ -30,7 +105,7 @@ function normalizeDocuments(value: unknown) {
 }
 
 function getEntryInput(request: Request) {
-  const entryType: KnowledgeBaseEntryType = request.body.entryType === "FAQ" ? "FAQ" : "Product";
+  const entryType: KnowledgeBaseEntryType = request.body.entryType === "FAQ" ? "FAQ" : request.body.entryType === "Article" ? "Article" : "Product";
 
   return {
     entryType,
@@ -48,7 +123,7 @@ function getEntryInput(request: Request) {
 }
 
 function getSuggestionInput(request: Request) {
-  const entryType: KnowledgeBaseEntryType = request.body.entryType === "FAQ" ? "FAQ" : "Product";
+  const entryType: KnowledgeBaseEntryType = request.body.entryType === "FAQ" ? "FAQ" : request.body.entryType === "Article" ? "Article" : "Product";
 
   return {
     entry: request.body.entry,
@@ -66,11 +141,117 @@ function getSuggestionInput(request: Request) {
   };
 }
 
+function normalizeMultilineText(value: unknown) {
+  return String(value || "")
+    .replace(/\\r\\n/g, "\n")
+    .replace(/\\n/g, "\n")
+    .replace(/\\r/g, "\n")
+    .trim();
+}
+
+const allowedKnowledgeBaseImageTypes = new Map([
+  ["image/png", "png"],
+  ["image/jpeg", "jpg"],
+  ["image/jpg", "jpg"],
+  ["image/webp", "webp"],
+  ["image/gif", "gif"],
+  ["image/avif", "avif"],
+  ["image/bmp", "bmp"],
+]);
+
+function getUploadHeader(request: Request, headerName: string) {
+  const header = request.headers[headerName.toLowerCase()];
+  return Array.isArray(header) ? header[0] : header || "";
+}
+
+function normalizeUploadFileName(value: unknown, fallback = "image") {
+  let decodedName = String(value || fallback);
+
+  try {
+    decodedName = decodeURIComponent(decodedName);
+  } catch {
+    // Keep the raw header value if it is not URI encoded.
+  }
+
+  return decodedName.replace(/[^a-zA-Z0-9._-]/g, "-") || fallback;
+}
+
+function getImageUploadPayload(request: Request) {
+  if (Buffer.isBuffer(request.body) && request.body.length > 0) {
+    const mimeType = String(getUploadHeader(request, "content-type") || "")
+      .split(";")[0]
+      .trim()
+      .toLowerCase();
+
+    return {
+      bytes: request.body,
+      mimeType,
+      originalName: normalizeUploadFileName(getUploadHeader(request, "x-file-name")),
+    };
+  }
+
+  const dataUrl = String(request.body?.dataUrl || "");
+  const match = dataUrl.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,([a-zA-Z0-9+/=\s]+)$/);
+
+  if (!match) {
+    return null;
+  }
+
+  return {
+    bytes: Buffer.from(match[2].replace(/\s/g, ""), "base64"),
+    mimeType: match[1].toLowerCase(),
+    originalName: normalizeUploadFileName(request.body?.fileName),
+  };
+}
+
+async function createAnnouncementNotices(entry: AnnouncementNoticeEntry) {
+  if (entry.entryType !== "Article" || entry.status !== "Active") {
+    return;
+  }
+
+  const employees = await Employee.find({ status: { $ne: "Archived" } }).select("_id").lean();
+
+  if (!employees.length) {
+    return;
+  }
+
+  const sourceId = entry._id.toString();
+  const title = String(entry.title || "New announcement").trim();
+  const message = normalizeMultilineText(entry.description).slice(0, 1500) || "A new announcement is available.";
+  const href = `/announcements/${sourceId}`;
+
+  await Notice.bulkWrite(
+    employees.map((employee) => ({
+      updateOne: {
+        filter: {
+          employee: employee._id,
+          source: "KnowledgeBaseAnnouncement",
+          sourceId,
+        },
+        update: {
+          $setOnInsert: {
+            employee: employee._id,
+            title,
+            message,
+            severity: "Info",
+            issuedBy: "Admin",
+            isRead: false,
+            href,
+            source: "KnowledgeBaseAnnouncement",
+            sourceId,
+          },
+        },
+        upsert: true,
+      },
+    }))
+  );
+}
+
 export async function listKnowledgeBaseEntries(request: Request, response: Response) {
   const entryType = String(request.query.entryType || "").trim();
   const filter: Record<string, unknown> = { status: { $ne: "Archived" } };
 
-  if (entryType === "Product" || entryType === "FAQ") {
+  if (entryType === "Product" || entryType === "FAQ" || entryType === "Article") {
     filter.entryType = entryType;
   }
 
@@ -91,19 +272,29 @@ export async function createKnowledgeBaseEntry(request: Request, response: Respo
     return;
   }
 
+  if (input.entryType === "Article" && (!input.title.trim() || !input.description.trim())) {
+    response.status(400).json({ message: "title and description are required" });
+    return;
+  }
+
   const entry = await KnowledgeBaseEntry.create(input);
+  await createAnnouncementNotices(entry);
   response.status(201).json(entry);
 }
 
 export async function updateKnowledgeBaseEntry(request: Request, response: Response) {
   const entry = await KnowledgeBaseEntry.findByIdAndUpdate(request.params.id, getEntryInput(request), {
-    new: true,
+    returnDocument: "after",
     runValidators: true,
   });
 
   if (!entry) {
     response.status(404).json({ message: "Knowledge base entry not found" });
     return;
+  }
+
+  if (entry.entryType === "Article" && entry.status === "Active") {
+    await createAnnouncementNotices(entry);
   }
 
   response.json(entry);
@@ -113,7 +304,7 @@ export async function archiveKnowledgeBaseEntry(request: Request, response: Resp
   const entry = await KnowledgeBaseEntry.findByIdAndUpdate(
     request.params.id,
     { status: "Archived" },
-    { new: true, runValidators: true }
+    { returnDocument: "after", runValidators: true }
   );
 
   if (!entry) {
@@ -125,25 +316,28 @@ export async function archiveKnowledgeBaseEntry(request: Request, response: Resp
 }
 
 export async function uploadKnowledgeBasePhoto(request: Request, response: Response) {
-  const dataUrl = String(request.body.dataUrl || "");
-  const originalName = String(request.body.fileName || "image").replace(/[^a-zA-Z0-9._-]/g, "-");
-  const match = dataUrl.match(/^data:(image\/(?:png|jpe?g|webp|gif));base64,(.+)$/);
+  const payload = getImageUploadPayload(request);
 
-  if (!match) {
-    response.status(400).json({ message: "Valid image dataUrl is required" });
+  if (!payload) {
+    response.status(400).json({ message: "Valid image file is required" });
     return;
   }
 
-  const mimeType = match[1];
-  const base64 = match[2];
-  const extension = mimeType === "image/png" ? "png" : mimeType === "image/webp" ? "webp" : mimeType === "image/gif" ? "gif" : "jpg";
-  const uploadDir = path.resolve("uploads", "knowledge-base");
-  const fileName = `${Date.now()}-${Math.random().toString(16).slice(2)}-${originalName}.${extension}`;
+  const extension = allowedKnowledgeBaseImageTypes.get(payload.mimeType);
+
+  if (!extension) {
+    response.status(400).json({ message: "Unsupported image type" });
+    return;
+  }
+
+  const uploadDir = knowledgeBaseUploadRoot;
+  const baseName = path.basename(payload.originalName, path.extname(payload.originalName)) || "image";
+  const fileName = `${Date.now()}-${Math.random().toString(16).slice(2)}-${baseName}.${extension}`;
 
   await mkdir(uploadDir, { recursive: true });
-  await writeFile(path.join(uploadDir, fileName), Buffer.from(base64, "base64"));
+  await writeFile(path.join(uploadDir, fileName), payload.bytes);
 
-  response.status(201).json({ url: `/uploads/knowledge-base/${fileName}` });
+  response.status(201).json({ url: knowledgeBasePhotoUrl(fileName) });
 }
 
 export async function uploadKnowledgeBaseDocument(request: Request, response: Response) {
@@ -179,7 +373,7 @@ export async function uploadKnowledgeBaseDocument(request: Request, response: Re
     return;
   }
 
-  const uploadDir = path.resolve("uploads", "knowledge-base", "documents");
+  const uploadDir = path.resolve(knowledgeBaseUploadRoot, "documents");
   const fileName = `${Date.now()}-${Math.random().toString(16).slice(2)}-${originalName}`;
 
   await mkdir(uploadDir, { recursive: true });
@@ -187,9 +381,17 @@ export async function uploadKnowledgeBaseDocument(request: Request, response: Re
 
   response.status(201).json({
     name: originalName,
-    url: `/uploads/knowledge-base/documents/${fileName}`,
+    url: knowledgeBaseDocumentUrl(fileName),
     mimeType,
   });
+}
+
+export async function serveKnowledgeBasePhotoFile(request: Request, response: Response) {
+  await serveKnowledgeBaseFile(request, response, "");
+}
+
+export async function serveKnowledgeBaseDocumentFile(request: Request, response: Response) {
+  await serveKnowledgeBaseFile(request, response, "documents");
 }
 
 export async function listKnowledgeBaseSuggestions(request: Request, response: Response) {
@@ -260,7 +462,7 @@ export async function approveKnowledgeBaseSuggestion(request: Request, response:
     return;
   }
 
-  if (entry.entryType === "Product") {
+  if (entry.entryType === "Product" || entry.entryType === "Article") {
     if (suggestion.title.trim()) entry.title = suggestion.title;
     if (suggestion.category.trim()) entry.category = suggestion.category;
     if (suggestion.description.trim()) entry.description = suggestion.description;
@@ -292,7 +494,7 @@ export async function rejectKnowledgeBaseSuggestion(request: Request, response: 
   const suggestion = await KnowledgeBaseSuggestion.findByIdAndUpdate(
     request.params.id,
     { status: "Rejected", reviewedAt: new Date() },
-    { new: true, runValidators: true }
+    { returnDocument: "after", runValidators: true }
   );
 
   if (!suggestion) {

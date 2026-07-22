@@ -1,4 +1,5 @@
-import { Schema, model } from "mongoose";
+import { Schema } from "mongoose";
+import { tenantModel } from "../config/tenancy";
 
 export type BranchDocument = {
   name: string;
@@ -17,4 +18,4 @@ const branchSchema = new Schema<BranchDocument>(
   { timestamps: true }
 );
 
-export const Branch = model<BranchDocument>("Branch", branchSchema);
+export const Branch = tenantModel<BranchDocument>("Branch", branchSchema);

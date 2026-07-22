@@ -15,6 +15,13 @@ export type CrmTask = {
     priority: TaskPriority;
     dueAt: string | null;
     completedAt: string | null;
+    comments?: Array<{
+        _id?: string;
+        authorName: string;
+        authorType: "admin" | "employee";
+        body: string;
+        createdAt: string;
+    }>;
     createdAt?: string;
     updatedAt?: string;
 };
@@ -34,6 +41,11 @@ export async function getTasks(params: { assignedTo?: string; status?: string; s
     return response.data;
 }
 
+export async function getTask(id: string) {
+    const response = await api.get<CrmTask>(`/tasks/${id}`);
+    return response.data;
+}
+
 export async function createTask(task: TaskInput) {
     const response = await api.post<CrmTask>("/tasks", task);
     return response.data;
@@ -46,6 +58,14 @@ export async function updateTask(id: string, task: TaskInput) {
 
 export async function updateTaskStatus(id: string, status: TaskStatus) {
     const response = await api.patch<CrmTask>(`/tasks/${id}/status`, { status });
+    return response.data;
+}
+
+export async function addTaskComment(
+    id: string,
+    comment: { body: string; authorName?: string; authorType?: "admin" | "employee" }
+) {
+    const response = await api.post<CrmTask>(`/tasks/${id}/comments`, comment);
     return response.data;
 }
 

@@ -1,54 +1,315 @@
-import type { FormEvent } from "react";
+import type { FormEvent, UIEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
     FiAlertTriangle,
     FiArchive,
+    FiCalendar,
+    FiChevronLeft,
+    FiChevronRight,
+    FiCheckCircle,
+    FiCheckSquare,
+    FiClock,
+    FiDownload,
     FiEdit2,
     FiExternalLink,
     FiMail,
     FiMapPin,
+    FiMoreVertical,
     FiPhone,
     FiPlus,
     FiRefreshCw,
+    FiRotateCcw,
     FiSave,
     FiSearch,
+    FiSquare,
+    FiTrash2,
     FiUpload,
+    FiUserPlus,
     FiX,
     FiZap,
 } from "react-icons/fi";
 import { FaWhatsapp } from "react-icons/fa";
+import { useSearchParams } from "react-router";
 import AdminLayout from "../adminLayout";
-import { getEmployees } from "../../../api/employees";
+import { getEmployees, type Employee } from "../../../api/employees";
 import {
     archiveLead,
+    addLeadComment,
+    archiveAllActiveLeads,
     autoSearchGooglePlacesLeads,
     autoAssignLead,
+    bulkAssignLeads,
+    bulkArchiveLeads,
+    bulkPermanentlyDeleteArchivedLeads,
+    bulkPermanentlyDeleteActiveLeads,
+    bulkRestoreLeads,
     createLead,
-    getLeads,
+    getAdminLeadCounts,
+    getAdminLeads,
+    getLead,
     importLeads,
+    permanentlyDeleteAllArchivedLeads,
+    permanentlyDeleteLead,
     reassignNewLeads,
+    restoreAllArchivedLeads,
+    restoreLead,
     scheduleLeadFollowUp,
     searchAndImportGooglePlaces,
     scoreLeadsByHighestPotential,
     updateLead,
+    updateLeadStatus,
     type GooglePlaceLead,
+    type AdminLeadApiTab,
+    type AdminLeadsPage,
     type Lead,
     type LeadImportInput,
     type LeadInput,
     type LeadStatus,
 } from "../../../api/leads";
+import { useClickOutside } from "../../../hooks/useClickOutside";
+import { useToast } from "../../../components/ToastProvider";
+import { formatCstDate, formatCstDateTime, formatCstDateTimeInput, formatPhDateTime, getCurrentCstDateTimeInput, parseCstDateTimeInput } from "../../../lib/dateTime";
+import { getSystemSettings } from "../../../api/systemSettings";
 
-const tabs: Array<LeadStatus | "ALL"> = [
-    "ALL",
+type AdminLeadTab = LeadStatus | "Unassigned" | "ALL";
+type LeadQueueFilter = "ALL" | "NEW" | "Follow up";
+type AllStatusFilter = "ALL" | Exclude<LeadStatus, "Archived">;
+
+const tabs: AdminLeadTab[] = [
     "NEW",
-    "Follow up",
-    "Ongoing comms",
     "Qualified",
     "Ongoing Negotiation",
+    "Completed",
     "Dead",
     "Archived",
+    "Unassigned",
+    "ALL",
 ];
+
+const allStatusFilters: AllStatusFilter[] = ["ALL", "NEW", "Follow up", "Ongoing comms", "Qualified", "Ongoing Negotiation", "Completed", "Dead"];
+const editableLeadStatuses: LeadStatus[] = ["NEW", "Follow up", "Qualified", "Ongoing Negotiation", "Completed", "Dead"];
+
+const LEAD_PAGE_SIZE = 20;
+const PH_TIME_OFFSET_HOURS = 8;
+const calendarWeekdays = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+const calendarMonthFormatter = new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric" });
+const datePickerLabelFormatter = new Intl.DateTimeFormat("en-US", { month: "short", day: "2-digit", year: "numeric" });
+
+function usesLeadQueueFilter(tab: AdminLeadTab) {
+    return tab === "NEW" || tab === "Unassigned";
+}
+
+function getAdminLeadApiTab(tab: AdminLeadTab): AdminLeadApiTab {
+    if (tab === "NEW") {
+        return "leads";
+    }
+
+    if (tab === "Ongoing Negotiation") {
+        return "negotiation";
+    }
+
+    return tab.toLowerCase() as AdminLeadApiTab;
+}
+
+function parseDateInputValue(value: string) {
+    const normalizedValue = value.trim();
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(normalizedValue)) {
+        return null;
+    }
+
+    const [year, month, day] = normalizedValue.split("-").map(Number);
+    const date = new Date(year, month - 1, day);
+
+    if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
+        return null;
+    }
+
+    return date;
+}
+
+function formatDateInputValue(date: Date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+
+    return `${year}-${month}-${day}`;
+}
+
+function formatDatePickerLabel(value: string) {
+    const date = parseDateInputValue(value);
+    return date ? datePickerLabelFormatter.format(date) : "Select date";
+}
+
+function addCalendarMonths(date: Date, delta: number) {
+    return new Date(date.getFullYear(), date.getMonth() + delta, 1);
+}
+
+function getCalendarDates(viewMonth: Date) {
+    const firstDay = new Date(viewMonth.getFullYear(), viewMonth.getMonth(), 1);
+    const startDate = new Date(firstDay);
+    startDate.setDate(firstDay.getDate() - firstDay.getDay());
+
+    return Array.from({ length: 42 }, (_, index) => {
+        const date = new Date(startDate);
+        date.setDate(startDate.getDate() + index);
+        return date;
+    });
+}
+
+function LeadDatePicker({
+    label,
+    value,
+    onChange,
+    align = "left",
+}: {
+    label: string;
+    value: string;
+    onChange: (value: string) => void;
+    align?: "left" | "right";
+}) {
+    const pickerRef = useRef<HTMLDivElement>(null);
+    const selectedDate = parseDateInputValue(value);
+    const [isOpen, setIsOpen] = useState(false);
+    const [viewMonth, setViewMonth] = useState(() => selectedDate || new Date());
+    const todayValue = formatDateInputValue(new Date());
+
+    useClickOutside(pickerRef, () => setIsOpen(false), isOpen);
+
+    useEffect(() => {
+        if (isOpen) {
+            setViewMonth(selectedDate || new Date());
+        }
+    }, [isOpen, selectedDate?.getTime()]);
+
+    const calendarDates = getCalendarDates(viewMonth);
+    const togglePicker = () => setIsOpen((open) => !open);
+
+    return (
+        <div ref={pickerRef} className="relative min-w-0">
+            <button
+                type="button"
+                className={[
+                    "group flex h-12 w-full min-w-0 items-center gap-2 rounded-lg border border-[#c7b8e8] bg-[#fbf9ff] px-2.5 text-left shadow-sm shadow-[#7c4ed8]/10 transition",
+                    "hover:border-[#842cff]/55 hover:bg-white focus:outline-none focus:ring-2 focus:ring-[#842cff]/20",
+                    isOpen ? "border-[#842cff]/70 bg-white ring-2 ring-[#842cff]/20" : "",
+                ].join(" ")}
+                onClick={togglePicker}
+                aria-haspopup="dialog"
+                aria-expanded={isOpen}
+            >
+                <span className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-slate-300 bg-white text-black shadow-sm shadow-slate-950/10">
+                    <FiCalendar className="size-4" style={{ color: "#000000", stroke: "#000000" }} aria-hidden="true" />
+                </span>
+                <span className="min-w-0 flex-1">
+                    <span className="block text-[9px] font-semibold uppercase tracking-[0.16em] text-black">{label}</span>
+                    <span className="mt-0.5 block truncate text-xs font-semibold text-black">
+                        {formatDatePickerLabel(value)}
+                    </span>
+                </span>
+            </button>
+
+            {isOpen && (
+                <div
+                    className={[
+                        "absolute z-40 w-[17rem] rounded-xl border border-[#c7b8e8] bg-white p-3 text-slate-900 shadow-2xl shadow-[#4c2a86]/20",
+                        "top-[calc(100%+0.45rem)]",
+                        align === "right" ? "right-0" : "left-0",
+                    ].join(" ")}
+                    role="dialog"
+                    aria-label={`${label} date picker`}
+                >
+                    <div className="flex items-center justify-between gap-2">
+                        <button
+                            type="button"
+                            className="flex size-8 items-center justify-center rounded-lg border border-[#d8cef3] bg-[#f6f2ff] text-black transition hover:border-[#842cff]/50 hover:bg-[#efe8ff]"
+                            onClick={() => setViewMonth((current) => addCalendarMonths(current, -1))}
+                            aria-label="Previous month"
+                        >
+                            <FiChevronLeft className="size-4" style={{ color: "#000000", stroke: "#000000" }} aria-hidden="true" />
+                        </button>
+                        <p className="min-w-0 truncate text-sm font-semibold text-black">{calendarMonthFormatter.format(viewMonth)}</p>
+                        <button
+                            type="button"
+                            className="flex size-8 items-center justify-center rounded-lg border border-[#d8cef3] bg-[#f6f2ff] text-black transition hover:border-[#842cff]/50 hover:bg-[#efe8ff]"
+                            onClick={() => setViewMonth((current) => addCalendarMonths(current, 1))}
+                            aria-label="Next month"
+                        >
+                            <FiChevronRight className="size-4" style={{ color: "#000000", stroke: "#000000" }} aria-hidden="true" />
+                        </button>
+                    </div>
+
+                    <div className="mt-3 grid grid-cols-7 gap-1 text-center text-[10px] font-semibold uppercase tracking-[0.08em] text-black">
+                        {calendarWeekdays.map((weekday) => (
+                            <span key={weekday}>{weekday}</span>
+                        ))}
+                    </div>
+
+                    <div className="mt-1 grid grid-cols-7 gap-1">
+                        {calendarDates.map((date) => {
+                            const dateValue = formatDateInputValue(date);
+                            const isSelected = dateValue === value;
+                            const isToday = dateValue === todayValue;
+                            const isOutsideMonth = date.getMonth() !== viewMonth.getMonth();
+
+                            const dayTextStyle = {
+                                color: "#000000",
+                                WebkitTextFillColor: "#000000",
+                            };
+
+                            return (
+                                <button
+                                    key={dateValue}
+                                    type="button"
+                                    className={[
+                                        "flex aspect-square items-center justify-center rounded-lg border text-xs font-semibold transition",
+                                        isSelected
+                                            ? "border-[#842cff] bg-[#efe8ff] shadow-sm shadow-[#842cff]/20"
+                                            : isToday
+                                                ? "border-[#54a0ff]/70 bg-[#eaf4ff]"
+                                                : isOutsideMonth
+                                                    ? "border-transparent bg-white hover:border-[#d8cef3] hover:bg-[#f8f5ff]"
+                                                    : "border-transparent bg-white hover:border-[#d8cef3] hover:bg-[#efe8ff]",
+                                    ].join(" ")}
+                                    onClick={() => {
+                                        onChange(dateValue);
+                                        setIsOpen(false);
+                                    }}
+                                >
+                                    <span className="text-xs font-semibold" style={dayTextStyle}>
+                                        {date.getDate()}
+                                    </span>
+                                </button>
+                            );
+                        })}
+                    </div>
+
+                    <div className="mt-3 flex items-center justify-between gap-2 border-t border-slate-200 pt-3">
+                        <button
+                            type="button"
+                            className="h-8 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 transition hover:border-[#842cff]/35 hover:text-[#6426d9] disabled:cursor-not-allowed disabled:opacity-40"
+                            onClick={() => onChange("")}
+                            disabled={!value}
+                        >
+                            Clear
+                        </button>
+                        <button
+                            type="button"
+                            className="h-8 rounded-lg border border-[#842cff]/35 bg-[#842cff] px-3 text-xs font-semibold text-white transition hover:border-[#6426d9] hover:bg-[#6426d9]"
+                            onClick={() => {
+                                onChange(todayValue);
+                                setViewMonth(new Date());
+                            }}
+                        >
+                            Today
+                        </button>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
 
 const emptyLead: LeadInput = {
     leadName: "",
@@ -78,6 +339,24 @@ function formatFilterLabel(value: string) {
         .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
+function getEditableLeadStatusLabel(status: LeadStatus) {
+    if (status === "Follow up") return "FOLLOW UP";
+    if (status === "Dead" || status === "Archived") return "ARCHIVE/DEAD";
+    return status.toUpperCase();
+}
+
+function isSalesRepresentative(employee: Pick<Employee, "role">) {
+    const role = (employee.role || "").trim().toLowerCase().replace(/\./g, "");
+    const compactRole = role.replace(/[^a-z]/g, "");
+
+    return (
+        role.includes("sales representative") ||
+        role.includes("sales rep") ||
+        compactRole === "salesrepresentative" ||
+        compactRole === "salesrep"
+    );
+}
+
 function normalizeImportedStatus(value: string): LeadStatus {
     const normalizedValue = value.trim().toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ");
     const statusMap: Record<string, LeadStatus> = {
@@ -92,6 +371,9 @@ function normalizeImportedStatus(value: string): LeadStatus {
         "follow up": "Follow up",
         negotiation: "Ongoing Negotiation",
         "ongoing negotiation": "Ongoing Negotiation",
+        completed: "Completed",
+        complete: "Completed",
+        done: "Completed",
         archived: "Archived",
     };
 
@@ -150,13 +432,43 @@ function parseCsv(text: string) {
     return rows;
 }
 
-function getCsvValue(row: Record<string, string>, key: string) {
-    return row[key]?.trim() || "";
+function normalizeCsvHeader(header: string) {
+    return header
+        .replace(/^\uFEFF/, "")
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, " ")
+        .trim();
+}
+
+function getCsvValue(row: Record<string, string>, ...keys: string[]) {
+    for (const key of keys) {
+        const value = row[normalizeCsvHeader(key)]?.trim();
+
+        if (value) {
+            return value;
+        }
+    }
+
+    return "";
+}
+
+function getRequestErrorMessage(error: unknown, fallback: string) {
+    const responseMessage =
+        typeof error === "object" && error && "response" in error
+            ? (error as { response?: { data?: { message?: unknown } } }).response?.data?.message
+            : "";
+
+    if (typeof responseMessage === "string" && responseMessage.trim()) {
+        return responseMessage;
+    }
+
+    return error instanceof Error && error.message ? error.message : fallback;
 }
 
 function parseLeadCsv(text: string): LeadImportInput[] {
     const rows = parseCsv(text);
-    const headers = rows[0]?.map((header) => header.trim()) || [];
+    const headers = rows[0]?.map(normalizeCsvHeader) || [];
 
     if (headers.length === 0) {
         return [];
@@ -164,25 +476,25 @@ function parseLeadCsv(text: string): LeadImportInput[] {
 
     return rows.slice(1).map((values) => {
         const row = Object.fromEntries(headers.map((header, index) => [header, values[index] || ""]));
-        const businessName = getCsvValue(row, "Business Name") || getCsvValue(row, "Name");
+        const businessName = getCsvValue(row, "Business Name", "Company Name", "Company", "Name");
 
         return {
-            leadName: getCsvValue(row, "Name"),
+            leadName: getCsvValue(row, "Lead Name", "Contact Name", "Name"),
             businessName,
-            businessAddress: getCsvValue(row, "Address"),
-            email: getCsvValue(row, "Email"),
-            phone: getCsvValue(row, "Phone"),
+            businessAddress: getCsvValue(row, "Business Address", "Address"),
+            email: getCsvValue(row, "Email", "Email Address", "E-mail", "E-mail Address"),
+            phone: getCsvValue(row, "Phone", "Phone Number", "Phone No", "Phone No.", "Telephone", "Mobile", "Mobile Number", "Contact Number"),
             source: getCsvValue(row, "Source") || "CSV Import",
-            category: getCsvValue(row, "Biz Type"),
+            category: getCsvValue(row, "Category", "Biz Type", "Business Type"),
             status: normalizeImportedStatus(getCsvValue(row, "Status")),
-            assignedToName: getCsvValue(row, "Assigned To"),
+            assignedToName: getCsvValue(row, "Assigned To", "Assigned Agent", "Agent"),
             notes: getCsvValue(row, "Notes"),
             createdAt: getCsvValue(row, "Created At") || null,
-            position: "",
-            website: "",
+            position: getCsvValue(row, "Position", "Title"),
+            website: getCsvValue(row, "Website"),
             assignedAgent: null,
             assignedTeam: null,
-            googlePlaceId: "",
+            googlePlaceId: getCsvValue(row, "Google Place ID", "Google Place Id"),
         };
     }).filter((lead) => lead.businessName?.trim());
 }
@@ -216,9 +528,79 @@ function getRelativeTime(value?: string | null) {
     return formatter.format(Math.round(diffMs / day), "day");
 }
 
-function getLeadActivity(lead: Lead) {
+type LeadActivityItem = {
+    label: string;
+    detail: string;
+    status: string;
+    action?: string;
+    createdAt?: string;
+};
+
+type LeadDetailDraft = {
+    leadName: string;
+    position: string;
+    businessName: string;
+    businessAddress: string;
+    email: string;
+    phone: string;
+    website: string;
+    source: string;
+    category: string;
+};
+
+const emptyLeadDetailDraft: LeadDetailDraft = {
+    leadName: "",
+    position: "",
+    businessName: "",
+    businessAddress: "",
+    email: "",
+    phone: "",
+    website: "",
+    source: "",
+    category: "",
+};
+
+function createLeadDetailDraft(lead: Lead | null): LeadDetailDraft {
+    if (!lead) return emptyLeadDetailDraft;
+
+    return {
+        leadName: lead.leadName || "",
+        position: lead.position || "",
+        businessName: lead.businessName || "",
+        businessAddress: lead.businessAddress || "",
+        email: lead.email || "",
+        phone: lead.phone || "",
+        website: lead.website || "",
+        source: lead.source || "",
+        category: lead.category || "",
+    };
+}
+
+function getLeadActivity(lead: Lead): LeadActivityItem[] {
+    const commentActivities = (lead.comments || []).map((comment) => ({
+        label: comment.authorName === "CSV Import" ? "Uploaded comment" : "Comment",
+        detail: `${comment.authorName || "Employee"}: ${comment.body}`,
+        status: "Done",
+        createdAt: comment.createdAt,
+        action: "",
+    }));
+
+    if (lead.activity?.length) {
+        return [
+            ...lead.activity.map((item) => ({
+                label: item.label,
+                detail: item.detail,
+                status: item.status,
+                createdAt: item.createdAt,
+                action: "",
+            })),
+            ...commentActivities,
+        ];
+    }
+
     const assignedName = lead.assignedAgent?.name || lead.assignedAgentName;
     const activities = [
+        ...commentActivities,
         {
             label: "Lead created",
             detail: `${lead.source || "Manual"} lead added${lead.category ? ` under ${lead.category}` : ""}.`,
@@ -232,10 +614,10 @@ function getLeadActivity(lead: Lead) {
         },
     ];
 
-    if (lead.followUpAt) {
+    if (lead.status !== "Qualified" && lead.followUpAt) {
         activities.push({
             label: "Follow-up scheduled",
-            detail: `${new Date(lead.followUpAt).toLocaleString()} (${getRelativeTime(lead.followUpAt)}).`,
+            detail: `${formatCstDateTime(lead.followUpAt)} (${getRelativeTime(lead.followUpAt)}).`,
             status: "Priority",
         });
     }
@@ -255,15 +637,41 @@ function getLeadActivity(lead: Lead) {
             lead.status === "NEW"
                 ? "Ready for first outreach."
                 : lead.status === "Follow up"
-                  ? "Follow-up is the next priority."
-                  : `Lead is currently marked ${lead.status}.`,
+                    ? "Follow-up is the next priority."
+                    : `Lead is currently marked ${lead.status}.`,
         status: "Current",
     });
 
     return activities;
 }
 
-function toLeadInput(lead: Lead, notes: string): LeadInput {
+function getCurrentLeadAgent(lead: Lead) {
+    return lead.assignedAgent?.name || lead.assignedAgentName || "Unassigned";
+}
+
+function getPreviousLeadAgent(lead: Lead) {
+    const currentAgent = getCurrentLeadAgent(lead).toLowerCase();
+    const assignmentItems = (lead.activity || [])
+        .filter((item) => String(item.label || "").toLowerCase() === "assigned")
+        .sort((first, second) => new Date(second.createdAt || 0).getTime() - new Date(first.createdAt || 0).getTime());
+
+    for (const item of assignmentItems) {
+        const match = String(item.detail || "").match(/\b(?:to|assigned this lead to|passed this lead to)\s+(.+?)(?:\.|$)/i);
+        const assignedName = match?.[1]?.trim();
+
+        if (assignedName && assignedName.toLowerCase() !== currentAgent) {
+            return assignedName;
+        }
+
+        if (item.actorType === "employee" && item.actorName && item.actorName.toLowerCase() !== currentAgent) {
+            return item.actorName;
+        }
+    }
+
+    return "None";
+}
+
+function toLeadInput(lead: Lead, notes: string, overrides: Partial<LeadInput> = {}): LeadInput {
     return {
         leadName: lead.leadName || "",
         position: lead.position || "",
@@ -287,22 +695,394 @@ function toLeadInput(lead: Lead, notes: string): LeadInput {
         aiScoreReason: lead.aiScoreReason || "",
         aiScoreSource: lead.aiScoreSource || "",
         aiScoredAt: lead.aiScoredAt,
+        ...overrides,
     };
+}
+
+function mergeLeadPages(current: Lead[], next: Lead[]) {
+    const leadsById = new Map([...current, ...next].map((lead) => [lead._id, lead]));
+    return Array.from(leadsById.values());
+}
+
+function updateLeadPageData(current: AdminLeadsPage | undefined, updater: (leads: Lead[]) => Lead[]) {
+    if (!current) {
+        return current;
+    }
+
+    return {
+        ...current,
+        leads: updater(current.leads),
+    };
+}
+
+function isScheduledForToday(lead: Lead) {
+    return Boolean(lead.status !== "Qualified" && lead.followUpAt && formatCstDate(lead.followUpAt) === formatCstDate(new Date()));
+}
+
+function hasManualCommentToday(lead: Lead) {
+    const today = formatCstDate(new Date());
+    return (lead.comments || []).some(
+        (comment) => comment.authorName !== "CSV Import" && formatCstDate(comment.createdAt) === today
+    ) || (lead.activity || []).some(
+        (item) => item.label.toLowerCase() === "comment added" && formatCstDate(item.createdAt) === today
+    );
+}
+
+function isCallPriorityLead(lead: Lead) {
+    return !isScheduledForToday(lead) && (lead.status === "NEW" || lead.status === "Follow up") && !hasManualCommentToday(lead);
+}
+
+function getDateInputBoundaryTimestamp(value: string, boundary: "start" | "end") {
+    const normalizedValue = value.trim();
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(normalizedValue)) {
+        return null;
+    }
+
+    const [year, month, day] = normalizedValue.split("-").map(Number);
+    const safeDate = new Date(`${normalizedValue}T00:00:00.000Z`);
+
+    if (
+        Number.isNaN(safeDate.getTime()) ||
+        safeDate.getUTCFullYear() !== year ||
+        safeDate.getUTCMonth() !== month - 1 ||
+        safeDate.getUTCDate() !== day
+    ) {
+        return null;
+    }
+
+    const timestamp =
+        boundary === "start"
+            ? Date.UTC(year, month - 1, day, -PH_TIME_OFFSET_HOURS, 0, 0, 0)
+            : Date.UTC(year, month - 1, day, 23 - PH_TIME_OFFSET_HOURS, 59, 59, 999);
+
+    return Number.isNaN(timestamp) ? null : timestamp;
+}
+
+function parseLeadTimestamp(value?: string | null) {
+    if (!value) {
+        return null;
+    }
+
+    const timestamp = new Date(value).getTime();
+
+    return Number.isNaN(timestamp) ? null : timestamp;
+}
+
+function getQualifiedDateTimestamp(lead: Lead) {
+    const qualifiedActivityTimes = (lead.activity || [])
+        .filter((item) => {
+            const text = `${item.status || ""} ${item.detail || ""}`.toLowerCase();
+            return text.includes("qualified");
+        })
+        .map((item) => parseLeadTimestamp(item.createdAt))
+        .filter((timestamp): timestamp is number => timestamp !== null);
+
+    if (qualifiedActivityTimes.length > 0) {
+        return Math.max(...qualifiedActivityTimes);
+    }
+
+    return parseLeadTimestamp(lead.createdAt);
+}
+
+function getRouteLeadTab(value: string): AdminLeadTab | null {
+    const normalizedValue = value.trim().toLowerCase();
+    const routeTabs: Record<string, AdminLeadTab> = {
+        all: "ALL",
+        leads: "NEW",
+        new: "NEW",
+        qualified: "Qualified",
+        negotiation: "Ongoing Negotiation",
+        "ongoing negotiation": "Ongoing Negotiation",
+        dead: "Dead",
+        archived: "Archived",
+        unassigned: "Unassigned",
+    };
+
+    return routeTabs[normalizedValue] || null;
+}
+
+function escapeExcelHtml(value: unknown) {
+    return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;")
+        .replace(/\r?\n/g, "<br />");
+}
+
+function slugifyExcelFilename(value: string) {
+    return value
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "") || "leads";
+}
+
+function formatLeadExportDate(value?: Date | string | null) {
+    return value ? formatPhDateTime(value) : "";
+}
+
+function formatLeadExportTimestamp(timestamp: number | null) {
+    return timestamp === null ? "" : formatPhDateTime(new Date(timestamp));
+}
+
+function latestLeadActivity(lead: Lead) {
+    const latest = [...(lead.activity || [])]
+        .sort((first, second) => new Date(second.createdAt || 0).getTime() - new Date(first.createdAt || 0).getTime())[0];
+
+    if (!latest) {
+        return "";
+    }
+
+    const timestamp = formatLeadExportDate(latest.createdAt);
+    return [latest.label, latest.detail, timestamp].filter(Boolean).join(" | ");
+}
+
+function latestLeadComment(lead: Lead) {
+    const latest = [...(lead.comments || [])]
+        .sort((first, second) => new Date(second.createdAt || 0).getTime() - new Date(first.createdAt || 0).getTime())[0];
+
+    if (!latest) {
+        return "";
+    }
+
+    const timestamp = formatLeadExportDate(latest.createdAt);
+    return [latest.authorName, latest.body, timestamp].filter(Boolean).join(" | ");
+}
+
+const leadExportColumns: Array<{ header: string; value: (lead: Lead) => string | number }> = [
+    { header: "Lead Name", value: (lead) => lead.leadName || "" },
+    { header: "Position", value: (lead) => lead.position || "" },
+    { header: "Business Name", value: (lead) => lead.businessName || "" },
+    { header: "Business Address", value: (lead) => lead.businessAddress || "" },
+    { header: "Email", value: (lead) => lead.email || "" },
+    { header: "Phone", value: (lead) => lead.phone || "" },
+    { header: "Website", value: (lead) => lead.website || "" },
+    { header: "Source", value: (lead) => lead.source || "" },
+    { header: "Category", value: (lead) => lead.category || "" },
+    { header: "Status", value: (lead) => lead.status || "" },
+    { header: "Assigned Agent", value: (lead) => getCurrentLeadAgent(lead) },
+    { header: "Assigned Team", value: (lead) => lead.assignedTeam?.name || "" },
+    { header: "Follow Up", value: (lead) => (lead.status !== "Qualified" ? formatLeadExportDate(lead.followUpAt) : "") },
+    { header: "Qualified At", value: (lead) => (lead.status === "Qualified" ? formatLeadExportTimestamp(getQualifiedDateTimestamp(lead)) : "") },
+    { header: "Created By", value: (lead) => lead.createdByName || lead.createdByType || "" },
+    { header: "Created At", value: (lead) => formatLeadExportDate(lead.createdAt) },
+    { header: "Updated At", value: (lead) => formatLeadExportDate(lead.updatedAt) },
+    { header: "AI Score", value: (lead) => lead.aiScore || 0 },
+    { header: "AI Score Reason", value: (lead) => lead.aiScoreReason || "" },
+    { header: "Google Place ID", value: (lead) => lead.googlePlaceId || "" },
+    { header: "Notes", value: (lead) => lead.notes || "" },
+    { header: "Comments Count", value: (lead) => lead.comments?.length || 0 },
+    { header: "Latest Comment", value: latestLeadComment },
+    { header: "Latest Activity", value: latestLeadActivity },
+];
+
+function downloadLeadExcelFile(filename: string, sheetName: string, leads: Lead[]) {
+    const safeSheetName = sheetName.replace(/[\\/?*:[\]]/g, " ").slice(0, 31) || "Leads";
+    const headerHtml = leadExportColumns
+        .map((column) => `<th style="background:#ede9fe;font-weight:700;border:1px solid #cbd5e1;">${escapeExcelHtml(column.header)}</th>`)
+        .join("");
+    const rowsHtml = leads
+        .map((lead) => {
+            const cells = leadExportColumns
+                .map((column) => `<td style="mso-number-format:'\\@';border:1px solid #cbd5e1;vertical-align:top;">${escapeExcelHtml(column.value(lead))}</td>`)
+                .join("");
+            return `<tr>${cells}</tr>`;
+        })
+        .join("");
+    const workbookHtml = `<!doctype html>
+<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+<head>
+<meta charset="UTF-8" />
+<!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet><x:Name>${escapeExcelHtml(safeSheetName)}</x:Name><x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions></x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]-->
+</head>
+<body><table><thead><tr>${headerHtml}</tr></thead><tbody>${rowsHtml}</tbody></table></body>
+</html>`;
+    const blob = new Blob(["\ufeff", workbookHtml], { type: "application/vnd.ms-excel;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${filename}.xls`;
+    link.click();
+    URL.revokeObjectURL(url);
 }
 
 export default function AdminLeads() {
     const queryClient = useQueryClient();
+    const { showToast } = useToast();
     const importInputRef = useRef<HTMLInputElement>(null);
-    const { data: leads = [], isLoading, isError } = useQuery({
-        queryKey: ["leads"],
-        queryFn: () => getLeads(),
-    });
-    const { data: employees = [] } = useQuery({
+    const [searchParams] = useSearchParams();
+    const routeLeadId = searchParams.get("lead") || "";
+    const [activeTab, setActiveTab] = useState<AdminLeadTab>("NEW");
+    const [leadQueueFilter, setLeadQueueFilter] = useState<LeadQueueFilter>("ALL");
+    const [allStatusFilter, setAllStatusFilter] = useState<AllStatusFilter>("ALL");
+    const [activeCategoryTab, setActiveCategoryTab] = useState("ALL");
+    const [leadSearch, setLeadSearch] = useState("");
+    const [debouncedLeadSearch, setDebouncedLeadSearch] = useState("");
+    const [assignedAgentFilter, setAssignedAgentFilter] = useState("ALL");
+    const [leadStateFilter, setLeadStateFilter] = useState("ALL");
+    const [dateFromFilter, setDateFromFilter] = useState("");
+    const [dateToFilter, setDateToFilter] = useState("");
+    const [leadPage, setLeadPage] = useState(1);
+    const [hasMoreLeads, setHasMoreLeads] = useState(true);
+    const [isFetchingMoreLeads, setIsFetchingMoreLeads] = useState(false);
+    const [isExportingLeads, setIsExportingLeads] = useState(false);
+    const shouldUseDateRangeFilter = activeTab === "Qualified";
+    const effectiveDateFromFilter = shouldUseDateRangeFilter ? dateFromFilter : "";
+    const effectiveDateToFilter = shouldUseDateRangeFilter ? dateToFilter : "";
+
+    const {
+        data: employees = [],
+        isLoading: isEmployeesLoading,
+    } = useQuery({
         queryKey: ["employees"],
         queryFn: getEmployees,
     });
-    const [activeTab, setActiveTab] = useState<LeadStatus | "ALL">("ALL");
-    const [activeCategoryTab, setActiveCategoryTab] = useState("ALL");
+
+    const activeEmployees = useMemo(
+        () => employees.filter((employee) => employee.status !== "Archived"),
+        [employees]
+    );
+
+    const selectedAgentName = useMemo(() => {
+        if (
+            assignedAgentFilter === "ALL" ||
+            assignedAgentFilter === "UNASSIGNED" ||
+            assignedAgentFilter.startsWith("manual:")
+        ) {
+            return "";
+        }
+
+        return activeEmployees.find((employee) => employee._id === assignedAgentFilter)?.name || "";
+    }, [activeEmployees, assignedAgentFilter]);
+
+    const leadQueryParams = useMemo(() => {
+        const params: Parameters<typeof getAdminLeads>[0] = {
+            page: 1,
+            limit: LEAD_PAGE_SIZE,
+            search: debouncedLeadSearch || undefined,
+            tab: getAdminLeadApiTab(activeTab),
+            queue: usesLeadQueueFilter(activeTab) ? leadQueueFilter : undefined,
+            statusFilter: activeTab === "ALL" ? allStatusFilter : undefined,
+            dateFrom: effectiveDateFromFilter || undefined,
+            dateTo: effectiveDateToFilter || undefined,
+            state: leadStateFilter !== "ALL" ? leadStateFilter : undefined,
+        };
+
+        if (assignedAgentFilter !== "ALL") {
+            if (assignedAgentFilter === "UNASSIGNED") {
+                params.unassigned = true;
+            } else if (assignedAgentFilter.startsWith("manual:")) {
+                params.assignedAgentNames = [assignedAgentFilter.replace(/^manual:/, "")];
+            } else {
+                params.assignedAgent = assignedAgentFilter;
+
+                if (selectedAgentName) {
+                    params.assignedAgentNames = [selectedAgentName];
+                }
+            }
+        }
+
+        return params;
+    }, [
+        activeTab,
+        allStatusFilter,
+        assignedAgentFilter,
+        debouncedLeadSearch,
+        effectiveDateFromFilter,
+        effectiveDateToFilter,
+        leadStateFilter,
+        leadQueueFilter,
+        selectedAgentName,
+    ]);
+
+    const leadQueryKey = useMemo(
+        () =>
+            [
+                "admin-leads",
+                activeTab,
+                leadQueueFilter,
+                allStatusFilter,
+                debouncedLeadSearch,
+                assignedAgentFilter,
+                leadStateFilter,
+                effectiveDateFromFilter,
+                effectiveDateToFilter,
+                selectedAgentName,
+            ] as const,
+        [
+            activeTab,
+            leadQueueFilter,
+            allStatusFilter,
+            assignedAgentFilter,
+            leadStateFilter,
+            effectiveDateFromFilter,
+            effectiveDateToFilter,
+            debouncedLeadSearch,
+            selectedAgentName,
+        ]
+    );
+
+    const { data: leadPageData, isLoading, isError } = useQuery({
+        queryKey: leadQueryKey,
+        queryFn: () => getAdminLeads(leadQueryParams),
+    });
+
+    const leads = leadPageData?.leads || [];
+    const leadStateOptions = leadPageData?.stateOptions || [];
+
+    const assignedAgentOptions = useMemo(() => {
+        const optionMap = new Map<string, string>();
+        const nameTracker = new Map<string, string>();
+
+        const normalizeName = (name: string) =>
+            name.trim().toLowerCase().replace(/\s+/g, " ");
+
+        const addOption = (id: string, name: string) => {
+            if (!name) return;
+
+            const normalizedName = normalizeName(name);
+
+            if (nameTracker.has(normalizedName)) return;
+
+            const optionId = id || `manual:${normalizedName}`;
+
+            nameTracker.set(normalizedName, optionId);
+            optionMap.set(optionId, name.trim());
+        };
+
+        activeEmployees.forEach((employee) => {
+            addOption(employee._id, employee.name);
+        });
+
+        leads.forEach((lead) => {
+            const agentId = lead.assignedAgent?._id || "";
+            const agentName = lead.assignedAgent?.name || lead.assignedAgentName || "";
+
+            addOption(agentId, agentName);
+        });
+
+        return Array.from(optionMap.entries()).sort((first, second) =>
+            first[1].localeCompare(second[1])
+        );
+    }, [activeEmployees, leads]);
+
+    const salesRepEmployees = useMemo(
+        () => activeEmployees.filter(isSalesRepresentative).sort((first, second) => first.name.localeCompare(second.name)),
+        [activeEmployees]
+    );
+
+    const { data: routeLead } = useQuery({
+        queryKey: ["admin-route-lead", routeLeadId],
+        queryFn: () => getLead(routeLeadId),
+        enabled: Boolean(routeLeadId && !leads.some((lead) => lead._id === routeLeadId)),
+    });
+
+    const { data: systemSettings } = useQuery({
+        queryKey: ["system-settings"],
+        queryFn: getSystemSettings,
+    });
     const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
     const [leadHistoryIds, setLeadHistoryIds] = useState<string[]>([]);
     const [isLeadModalOpen, setIsLeadModalOpen] = useState(false);
@@ -312,24 +1092,102 @@ export default function AdminLeads() {
     const [placesProduct, setPlacesProduct] = useState("Popcorn vending machine");
     const [placesCity, setPlacesCity] = useState("");
     const [placesState, setPlacesState] = useState("");
+    const [placesRadiusMiles, setPlacesRadiusMiles] = useState("50");
     const [placeResults, setPlaceResults] = useState<GooglePlaceLead[]>([]);
     const [autoSearchQueries, setAutoSearchQueries] = useState<string[]>([]);
+    const [autoSearchLocations, setAutoSearchLocations] = useState<string[]>([]);
     const [isAiSorted, setIsAiSorted] = useState(false);
     const [aiSortUsedOpenAI, setAiSortUsedOpenAI] = useState(false);
     const [isScoreSaved, setIsScoreSaved] = useState(false);
     const [followUpDateTime, setFollowUpDateTime] = useState("");
     const [commentDraft, setCommentDraft] = useState("");
-    const [isCommentEditing, setIsCommentEditing] = useState(false);
     const [isAssignEditing, setIsAssignEditing] = useState(false);
     const [assignmentEmployeeId, setAssignmentEmployeeId] = useState("");
-    const [assignmentName, setAssignmentName] = useState("");
+    const [statusDraft, setStatusDraft] = useState<LeadStatus>("NEW");
+    const [isDetailEditing, setIsDetailEditing] = useState(false);
+    const [detailDraft, setDetailDraft] = useState<LeadDetailDraft>(emptyLeadDetailDraft);
     const [deleteTarget, setDeleteTarget] = useState<Lead | null>(null);
-    const [deleteStep, setDeleteStep] = useState<1 | 2>(1);
     const [importMessage, setImportMessage] = useState("");
+    const [selectedBulkLeadIds, setSelectedBulkLeadIds] = useState<string[]>([]);
+    const [bulkAction, setBulkAction] = useState<null | "archive" | "archive-all" | "delete-active-selected" | "restore" | "delete-selected" | "restore-all" | "delete-all">(null);
+    const [isBulkMenuOpen, setIsBulkMenuOpen] = useState(false);
+    const [isBulkAssignMenuOpen, setIsBulkAssignMenuOpen] = useState(false);
+    const [isAllDatabaseSelected, setIsAllDatabaseSelected] = useState(false);
+    const bulkMenuRef = useRef<HTMLDivElement>(null);
+    useClickOutside(bulkMenuRef, () => {
+        setIsBulkMenuOpen(false);
+        setIsBulkAssignMenuOpen(false);
+    }, isBulkMenuOpen);
 
-    const invalidateLeads = () => {
-        queryClient.invalidateQueries({ queryKey: ["leads"] });
+    const invalidateLeads = async () => {
+        setLeadPage(1);
+        setHasMoreLeads(true);
+        await queryClient.invalidateQueries({ queryKey: ["admin-leads"] });
+        await queryClient.invalidateQueries({ queryKey: ["admin-lead-counts"] });
+        await queryClient.invalidateQueries({ queryKey: ["leads"] });
+        await queryClient.invalidateQueries({ queryKey: ["lead-counts"] });
+        await queryClient.refetchQueries({ queryKey: ["admin-leads"] });
+        await queryClient.refetchQueries({ queryKey: ["admin-lead-counts"] });
     };
+
+    useEffect(() => {
+        const timeoutId = window.setTimeout(() => {
+            setDebouncedLeadSearch(leadSearch.trim());
+        }, 250);
+
+        return () => window.clearTimeout(timeoutId);
+    }, [leadSearch]);
+
+    useEffect(() => {
+        const routeSearch = searchParams.get("leadSearch") || "";
+        const routeScope = searchParams.get("scope") || searchParams.get("tab") || "";
+        const routeTab = getRouteLeadTab(routeScope);
+        const routeLeadIdParam = searchParams.get("lead") || "";
+
+        if (!routeSearch && !routeTab && !routeLeadIdParam) {
+            return;
+        }
+
+        if (routeTab) {
+            setActiveTab(routeTab);
+            setActiveCategoryTab("ALL");
+            setAssignedAgentFilter("ALL");
+            setLeadStateFilter("ALL");
+            setLeadQueueFilter("ALL");
+            setAllStatusFilter("ALL");
+        }
+
+        if (routeSearch) {
+            setLeadSearch(routeSearch);
+            setDebouncedLeadSearch(routeSearch);
+        }
+
+        if (routeLeadIdParam) {
+            setSelectedLeadId(routeLeadIdParam);
+            setLeadHistoryIds((current) => (current.includes(routeLeadIdParam) ? current : [routeLeadIdParam, ...current].slice(0, 8)));
+        }
+    }, [searchParams]);
+
+    useEffect(() => {
+        setLeadPage(1);
+        setHasMoreLeads(true);
+    }, [activeTab, allStatusFilter, assignedAgentFilter, debouncedLeadSearch, effectiveDateFromFilter, effectiveDateToFilter, leadQueueFilter, leadStateFilter]);
+
+    useEffect(() => {
+        if (leadStateFilter === "ALL" || leadStateOptions.length === 0) {
+            return;
+        }
+
+        if (!leadStateOptions.some((option) => option.code === leadStateFilter)) {
+            setLeadStateFilter("ALL");
+        }
+    }, [leadStateFilter, leadStateOptions]);
+
+    useEffect(() => {
+        if (activeTab !== "ALL") {
+            setAllStatusFilter("ALL");
+        }
+    }, [activeTab]);
 
     const createLeadMutation = useMutation({
         mutationFn: createLead,
@@ -339,56 +1197,137 @@ export default function AdminLeads() {
     const importLeadsMutation = useMutation({
         mutationFn: importLeads,
         onSuccess: (result) => {
-            queryClient.setQueryData<Lead[]>(["leads"], (current = []) => {
-                const leadsById = new Map([...result.leads, ...current].map((lead) => [lead._id, lead]));
-                return Array.from(leadsById.values());
-            });
-            setImportMessage(`Imported ${result.importedCount} lead${result.importedCount === 1 ? "" : "s"}`);
+            if (result.leads.length > 0) {
+                queryClient.setQueryData<AdminLeadsPage>(leadQueryKey, (current) =>
+                    updateLeadPageData(current, (currentLeads) => mergeLeadPages(result.leads, currentLeads))
+                );
+            }
+            setImportMessage(
+                `Imported ${result.importedCount} lead${result.importedCount === 1 ? "" : "s"}${result.duplicateCount ? `, skipped ${result.duplicateCount} duplicate${result.duplicateCount === 1 ? "" : "s"}` : ""
+                }`
+            );
             invalidateLeads();
         },
-        onError: () => {
-            setImportMessage("Import failed. Check the CSV and try again.");
+        onError: (error) => {
+            setImportMessage(getRequestErrorMessage(error, "Import failed. Check the CSV and try again."));
         },
     });
 
     const archiveLeadMutation = useMutation({
-        mutationFn: archiveLead,
+        mutationFn: (leadId: string) => archiveLead(leadId),
         onSuccess: invalidateLeads,
+    });
+    const restoreLeadMutation = useMutation({
+        mutationFn: restoreLead,
+        onSuccess: invalidateLeads,
+    });
+    const permanentlyDeleteLeadMutation = useMutation({
+        mutationFn: permanentlyDeleteLead,
+        onSuccess: invalidateLeads,
+    });
+    const bulkArchiveLeadsMutation = useMutation({
+        mutationFn: bulkArchiveLeads,
+        onSuccess: () => {
+            setSelectedBulkLeadIds([]);
+            setIsAllDatabaseSelected(false);
+            invalidateLeads();
+        },
+    });
+    const archiveAllActiveLeadsMutation = useMutation({
+        mutationFn: archiveAllActiveLeads,
+        onSuccess: () => {
+            setSelectedBulkLeadIds([]);
+            setIsAllDatabaseSelected(false);
+            invalidateLeads();
+        },
+    });
+    const bulkRestoreLeadsMutation = useMutation({
+        mutationFn: bulkRestoreLeads,
+        onSuccess: () => {
+            setSelectedBulkLeadIds([]);
+            setIsAllDatabaseSelected(false);
+            invalidateLeads();
+        },
+    });
+    const bulkAssignLeadsMutation = useMutation({
+        mutationFn: bulkAssignLeads,
+        onSuccess: () => {
+            setSelectedBulkLeadIds([]);
+            setIsAllDatabaseSelected(false);
+            setIsBulkAssignMenuOpen(false);
+            invalidateLeads();
+        },
+    });
+    const bulkPermanentDeleteMutation = useMutation({
+        mutationFn: bulkPermanentlyDeleteArchivedLeads,
+        onSuccess: () => {
+            setSelectedBulkLeadIds([]);
+            setIsAllDatabaseSelected(false);
+            invalidateLeads();
+        },
+    });
+    const bulkPermanentDeleteActiveMutation = useMutation({
+        mutationFn: bulkPermanentlyDeleteActiveLeads,
+        onSuccess: () => {
+            setSelectedBulkLeadIds([]);
+            setIsAllDatabaseSelected(false);
+            invalidateLeads();
+        },
+    });
+    const restoreAllArchivedLeadsMutation = useMutation({
+        mutationFn: restoreAllArchivedLeads,
+        onSuccess: () => {
+            setSelectedBulkLeadIds([]);
+            setIsAllDatabaseSelected(false);
+            invalidateLeads();
+        },
+    });
+    const permanentlyDeleteAllArchivedLeadsMutation = useMutation({
+        mutationFn: permanentlyDeleteAllArchivedLeads,
+        onSuccess: () => {
+            setSelectedBulkLeadIds([]);
+            setIsAllDatabaseSelected(false);
+            invalidateLeads();
+        },
     });
 
     const openDeletePrompt = (lead: Lead) => {
         setDeleteTarget(lead);
-        setDeleteStep(1);
     };
 
     const closeDeletePrompt = () => {
         setDeleteTarget(null);
-        setDeleteStep(1);
     };
 
     const confirmDelete = () => {
+        if (archiveLeadMutation.isPending || permanentlyDeleteLeadMutation.isPending) return;
         if (!deleteTarget) return;
+        if (deleteTarget.status === "Archived") {
+            permanentlyDeleteLeadMutation.mutate(deleteTarget._id, { onSuccess: closeDeletePrompt });
+            return;
+        }
         archiveLeadMutation.mutate(deleteTarget._id, { onSuccess: closeDeletePrompt });
     };
 
     const autoAssignLeadMutation = useMutation({
         mutationFn: autoAssignLead,
         onSuccess: (lead) => {
-            queryClient.setQueryData<Lead[]>(["leads"], (current = []) =>
-                current.map((currentLead) => (currentLead._id === lead._id ? lead : currentLead))
+            queryClient.setQueryData<AdminLeadsPage>(leadQueryKey, (current) =>
+                updateLeadPageData(current, (currentLeads) =>
+                    currentLeads.map((currentLead) => (currentLead._id === lead._id ? lead : currentLead))
+                )
             );
-            setIsCommentEditing(false);
         },
     });
 
     const reassignNewLeadsMutation = useMutation({
         mutationFn: reassignNewLeads,
         onSuccess: (result) => {
-            queryClient.setQueryData<Lead[]>(["leads"], (current = []) => {
+            queryClient.setQueryData<AdminLeadsPage>(leadQueryKey, (current) => updateLeadPageData(current, (currentLeads) => {
                 const reassignedLeadsById = new Map(result.leads.map((lead) => [lead._id, lead]));
 
-                return current.map((lead) => reassignedLeadsById.get(lead._id) || lead);
-            });
+                return currentLeads.map((lead) => reassignedLeadsById.get(lead._id) || lead);
+            }));
             invalidateLeads();
         },
     });
@@ -397,19 +1336,26 @@ export default function AdminLeads() {
         mutationFn: ({ id, followUpAt }: { id: string; followUpAt: string }) =>
             scheduleLeadFollowUp(id, { followUpAt, followUpPriority: 100 }),
         onSuccess: (lead) => {
-            queryClient.setQueryData<Lead[]>(["leads"], (current = []) =>
-                current.map((currentLead) => (currentLead._id === lead._id ? lead : currentLead))
+            queryClient.setQueryData<AdminLeadsPage>(leadQueryKey, (current) =>
+                updateLeadPageData(current, (currentLeads) =>
+                    currentLeads.map((currentLead) => (currentLead._id === lead._id ? lead : currentLead))
+                )
             );
-            setFollowUpDateTime("");
+            setFollowUpDateTime(formatCstDateTimeInput(lead.followUpAt) || getCurrentCstDateTimeInput());
         },
     });
 
-    const saveCommentMutation = useMutation({
-        mutationFn: ({ lead, notes }: { lead: Lead; notes: string }) => updateLead(lead._id, toLeadInput(lead, notes)),
+    const addCommentMutation = useMutation({
+        mutationFn: ({ leadId, body }: { leadId: string; body: string }) =>
+            addLeadComment(leadId, { body, authorName: "Admin", authorType: "admin" }),
         onSuccess: (lead) => {
-            queryClient.setQueryData<Lead[]>(["leads"], (current = []) =>
-                current.map((currentLead) => (currentLead._id === lead._id ? lead : currentLead))
+            queryClient.setQueryData<AdminLeadsPage>(leadQueryKey, (current) =>
+                updateLeadPageData(current, (currentLeads) =>
+                    currentLeads.map((currentLead) => (currentLead._id === lead._id ? lead : currentLead))
+                )
             );
+            setCommentDraft("");
+            void invalidateLeads();
         },
     });
 
@@ -429,10 +1375,53 @@ export default function AdminLeads() {
                 assignedAgentName,
             }),
         onSuccess: (lead) => {
-            queryClient.setQueryData<Lead[]>(["leads"], (current = []) =>
-                current.map((currentLead) => (currentLead._id === lead._id ? lead : currentLead))
+            queryClient.setQueryData<AdminLeadsPage>(leadQueryKey, (current) =>
+                updateLeadPageData(current, (currentLeads) =>
+                    currentLeads.map((currentLead) => (currentLead._id === lead._id ? lead : currentLead))
+                )
             );
             setIsAssignEditing(false);
+        },
+    });
+
+    const updateStatusMutation = useMutation({
+        mutationFn: ({ id, status }: { id: string; status: LeadStatus }) =>
+            updateLeadStatus(id, status, { activityActorName: "Admin", activityActorType: "admin" }),
+        onSuccess: (lead) => {
+            queryClient.setQueryData<AdminLeadsPage>(leadQueryKey, (current) =>
+                updateLeadPageData(current, (currentLeads) =>
+                    currentLeads.map((currentLead) => (currentLead._id === lead._id ? lead : currentLead))
+                )
+            );
+            setStatusDraft(lead.status);
+            setFollowUpDateTime(formatCstDateTimeInput(lead.followUpAt) || getCurrentCstDateTimeInput());
+            void invalidateLeads();
+        },
+    });
+
+    const updateDetailsMutation = useMutation({
+        mutationFn: ({ lead, draft }: { lead: Lead; draft: LeadDetailDraft }) =>
+            updateLead(
+                lead._id,
+                toLeadInput(
+                    lead,
+                    lead.notes || "",
+                    {
+                        ...draft,
+                        businessName: draft.businessName.trim(),
+                        activityActorName: "Admin",
+                        activityActorType: "admin",
+                    }
+                )
+            ),
+        onSuccess: (lead) => {
+            queryClient.setQueryData<AdminLeadsPage>(leadQueryKey, (current) =>
+                updateLeadPageData(current, (currentLeads) =>
+                    currentLeads.map((currentLead) => (currentLead._id === lead._id ? lead : currentLead))
+                )
+            );
+            setDetailDraft(createLeadDetailDraft(lead));
+            setIsDetailEditing(false);
         },
     });
 
@@ -440,7 +1429,8 @@ export default function AdminLeads() {
         mutationFn: searchAndImportGooglePlaces,
         onSuccess: (result) => {
             setPlaceResults(result.places);
-            setAutoSearchQueries([]);
+            setAutoSearchQueries(result.searchedQueries || []);
+            setAutoSearchLocations(result.searchedLocations || []);
             invalidateLeads();
         },
     });
@@ -450,12 +1440,14 @@ export default function AdminLeads() {
         onSuccess: (result) => {
             setPlaceResults(result.places);
             setAutoSearchQueries(result.searchedQueries);
+            setAutoSearchLocations(result.searchedLocations || []);
             setActiveCategoryTab(formatFilterLabel(result.product));
             invalidateLeads();
-            queryClient.setQueryData<Lead[]>(["leads"], (current = []) => {
-                const leadsById = new Map([...result.leads, ...current].map((lead) => [lead._id, lead]));
-                return Array.from(leadsById.values()).sort((first, second) => (second.aiScore || 0) - (first.aiScore || 0));
-            });
+            queryClient.setQueryData<AdminLeadsPage>(leadQueryKey, (current) =>
+                updateLeadPageData(current, (currentLeads) =>
+                    mergeLeadPages(result.leads, currentLeads).sort((first, second) => (second.aiScore || 0) - (first.aiScore || 0))
+                )
+            );
             setIsAiSorted(true);
             setIsScoreSaved(true);
         },
@@ -464,13 +1456,13 @@ export default function AdminLeads() {
     const scoreLeadsMutation = useMutation({
         mutationFn: scoreLeadsByHighestPotential,
         onSuccess: async (result) => {
-            queryClient.setQueryData<Lead[]>(["leads"], (current = []) => {
+            queryClient.setQueryData<AdminLeadsPage>(leadQueryKey, (current) => updateLeadPageData(current, (currentLeads) => {
                 const scoredLeadsById = new Map(result.leads.map((lead) => [lead._id, lead]));
-                const untouchedLeads = current.filter((lead) => !scoredLeadsById.has(lead._id));
+                const untouchedLeads = currentLeads.filter((lead) => !scoredLeadsById.has(lead._id));
 
                 return [...result.leads, ...untouchedLeads];
-            });
-            await queryClient.invalidateQueries({ queryKey: ["leads"] });
+            }));
+            await queryClient.invalidateQueries({ queryKey: ["admin-leads"] });
             setIsAiSorted(true);
             setAiSortUsedOpenAI(result.usedAi);
             setIsScoreSaved(true);
@@ -479,8 +1471,14 @@ export default function AdminLeads() {
 
     const categoryTabs = useMemo(() => {
         const categoryNames = new Map<string, string>();
+        const categorySource =
+            activeTab === "NEW"
+                ? leads.filter((lead) => (leadQueueFilter === "ALL" ? lead.status === "NEW" || lead.status === "Follow up" : lead.status === leadQueueFilter))
+                : activeTab === "Unassigned"
+                    ? leads.filter((lead) => (leadQueueFilter === "ALL" ? lead.status !== "Archived" && lead.status !== "Dead" : lead.status === leadQueueFilter))
+                    : leads;
 
-        leads.forEach((lead) => {
+        categorySource.forEach((lead) => {
             const category = formatFilterLabel(lead.category || "");
 
             if (category) {
@@ -489,16 +1487,88 @@ export default function AdminLeads() {
         });
 
         return ["ALL", ...Array.from(categoryNames.values()).sort((a, b) => a.localeCompare(b))];
-    }, [leads]);
-    const activeEmployees = useMemo(() => employees.filter((employee) => employee.status !== "Archived"), [employees]);
+    }, [activeTab, leadQueueFilter, leads]);
+    const isAgentDropdownLoading = isEmployeesLoading || isLoading;
+
+
+
+    const leadCountParams = useMemo(() => {
+        const params: Parameters<typeof getAdminLeadCounts>[0] = {
+            search: debouncedLeadSearch || undefined,
+            state: leadStateFilter !== "ALL" ? leadStateFilter : undefined,
+        };
+
+        if (assignedAgentFilter !== "ALL") {
+            if (assignedAgentFilter === "UNASSIGNED") {
+                params.assignedAgentNames = [""];
+            } else if (assignedAgentFilter.startsWith("manual:")) {
+                params.assignedAgentNames = [
+                    assignedAgentFilter.replace(/^manual:/, ""),
+                ];
+            } else {
+                params.assignedAgent = assignedAgentFilter;
+                params.assignedAgentNames = selectedAgentName
+                    ? [selectedAgentName]
+                    : [];
+            }
+        }
+
+        return params;
+    }, [assignedAgentFilter, debouncedLeadSearch, leadStateFilter, selectedAgentName]);
+
+    const { data: leadCounts = {} } = useQuery({
+        queryKey: ["admin-lead-counts", leadCountParams],
+        queryFn: () => getAdminLeadCounts(leadCountParams),
+    });
 
     const filteredLeads = useMemo(() => {
+        const dateFromTimestamp = getDateInputBoundaryTimestamp(effectiveDateFromFilter, "start");
+        const dateToTimestamp = getDateInputBoundaryTimestamp(effectiveDateToFilter, "end");
+        const hasDateRangeFilter = dateFromTimestamp !== null || dateToTimestamp !== null;
+
         const visibleLeads = leads.filter((lead) => {
-            const matchesStatus = activeTab === "ALL" || lead.status === activeTab;
+            const assignedAgentId = lead.assignedAgent?._id || "";
+            const assignedAgentName = lead.assignedAgent?.name || lead.assignedAgentName || "";
+            const isUnassigned = !assignedAgentId && !assignedAgentName.trim();
+            const matchesStatus =
+                activeTab === "ALL"
+                    ? lead.status !== "Archived" && (allStatusFilter === "ALL" || lead.status === allStatusFilter)
+                    : activeTab === "NEW"
+                        ? leadQueueFilter === "ALL"
+                            ? lead.status === "NEW" || lead.status === "Follow up"
+                            : lead.status === leadQueueFilter
+                        : activeTab === "Unassigned"
+                            ? isUnassigned && (leadQueueFilter === "ALL" ? lead.status !== "Archived" && lead.status !== "Dead" : lead.status === leadQueueFilter)
+                            : lead.status === activeTab;
             const matchesCategory =
                 activeCategoryTab === "ALL" || formatFilterLabel(lead.category || "").toLowerCase() === activeCategoryTab.toLowerCase();
+            const selectedAgentNameNormalized = selectedAgentName
+                .trim()
+                .toLowerCase()
+                .replace(/\s+/g, " ");
 
-            return matchesStatus && matchesCategory;
+            const assignedAgentNameNormalized = assignedAgentName
+                .trim()
+                .toLowerCase()
+                .replace(/\s+/g, " ");
+
+            const matchesAgent =
+                assignedAgentFilter === "ALL" ||
+                (assignedAgentFilter === "UNASSIGNED" && isUnassigned) ||
+                assignedAgentFilter === assignedAgentId ||
+                assignedAgentFilter === `manual:${assignedAgentNameNormalized}` ||
+                (
+                    Boolean(selectedAgentNameNormalized) &&
+                    assignedAgentNameNormalized === selectedAgentNameNormalized
+                );
+            const leadDateTimestamp = activeTab === "Qualified" ? getQualifiedDateTimestamp(lead) : parseLeadTimestamp(lead.createdAt);
+            const matchesDateRange =
+                !hasDateRangeFilter ||
+                (leadDateTimestamp !== null &&
+                    (dateFromTimestamp === null || leadDateTimestamp >= dateFromTimestamp) &&
+                    (dateToTimestamp === null || leadDateTimestamp <= dateToTimestamp));
+
+            return matchesStatus && matchesCategory && matchesAgent && matchesDateRange;
         });
 
         if (!isAiSorted) {
@@ -506,15 +1576,79 @@ export default function AdminLeads() {
         }
 
         return [...visibleLeads].sort((first, second) => (second.aiScore || 0) - (first.aiScore || 0));
-    }, [activeCategoryTab, activeTab, isAiSorted, leads]);
+    }, [activeCategoryTab, activeTab, allStatusFilter, assignedAgentFilter, effectiveDateFromFilter, effectiveDateToFilter, isAiSorted, leadQueueFilter, leads, selectedAgentName]);
 
-    const selectedLead = leads.find((lead) => lead._id === selectedLeadId) || filteredLeads[0] || null;
+    const selectableLeadIds = useMemo(() => {
+        if (activeTab === "ALL" || activeTab === "Unassigned" || activeTab === "NEW") {
+            return filteredLeads
+                .filter((lead) => lead.status !== "Archived")
+                .map((lead) => lead._id);
+        }
+
+        if (activeTab === "Archived") {
+            return filteredLeads
+                .filter((lead) => lead.status === "Archived")
+                .map((lead) => lead._id);
+        }
+
+        return [];
+    }, [activeTab, filteredLeads]);
+    const archivedLeadCount = leadCounts.Archived || 0;
+    const getTabLabel = (tab: AdminLeadTab) => (tab === "NEW" ? "Leads" : tab);
+    const getLeadQueueFilterLabel = (filter: LeadQueueFilter) => {
+        if (filter === "ALL") {
+            return "All";
+        }
+
+        return filter === "NEW" ? "New" : "Follow up";
+    };
+    const hasDateRangeFilter = Boolean(effectiveDateFromFilter || effectiveDateToFilter);
+    const activeTabTotalCount =
+        leadPageData?.total ??
+        (activeTab === "NEW"
+            ? leadQueueFilter === "ALL"
+                ? (leadCounts.NEW || 0) + (leadCounts["Follow up"] || 0)
+                : leadCounts[leadQueueFilter] || 0
+            : activeTab === "Unassigned"
+                ? leadQueueFilter === "ALL"
+                    ? leadCounts.Unassigned || leads.length
+                    : leadCounts[leadQueueFilter] || leads.length
+                : leadCounts[activeTab] || leadCounts.ALL || leads.length);
+    const getTabCount = (tab: AdminLeadTab) => {
+        if (tab === "ALL" && (debouncedLeadSearch || assignedAgentFilter !== "ALL" || leadStateFilter !== "ALL" || hasDateRangeFilter || activeCategoryTab !== "ALL")) {
+            return activeTab === "ALL" ? filteredLeads.length : leads.filter((lead) => lead.status !== "Archived").length;
+        }
+
+        if (tab === activeTab) {
+            return activeCategoryTab === "ALL" ? activeTabTotalCount : filteredLeads.length;
+        }
+
+        if (tab === "NEW") {
+            return (leadCounts.NEW || 0) + (leadCounts["Follow up"] || 0);
+        }
+
+        return leadCounts[tab] || 0;
+    };
+    const selectableLeadCount =
+        activeTab === "ALL" ? leadCounts.ALL || selectableLeadIds.length : activeTab === "Archived" ? archivedLeadCount || selectableLeadIds.length : selectableLeadIds.length;
+    const selectedBulkCount = isAllDatabaseSelected ? leadCounts.ALL || selectableLeadIds.length : selectedBulkLeadIds.length;
+    const selectedBulkLabel = isAllDatabaseSelected ? "All" : String(selectedBulkCount);
+    const areAllVisibleLeadsSelected =
+        isAllDatabaseSelected || (selectableLeadIds.length > 0 && selectableLeadIds.every((leadId) => selectedBulkLeadIds.includes(leadId)));
+
+    const selectedRouteLead = routeLead?._id === selectedLeadId ? routeLead : null;
+    const selectedLead = leads.find((lead) => lead._id === selectedLeadId) || selectedRouteLead || filteredLeads[0] || null;
     const leadHistory = leadHistoryIds
-        .map((leadId) => leads.find((lead) => lead._id === leadId))
+        .map((leadId) => leads.find((lead) => lead._id === leadId) || (routeLead?._id === leadId ? routeLead : undefined))
         .filter((lead): lead is Lead => Boolean(lead));
+    const showLeadMiniTabs = systemSettings?.adminLeadMiniTabsEnabled !== false;
 
     const selectLead = (leadId: string) => {
         setSelectedLeadId(leadId);
+        if (!showLeadMiniTabs) {
+            return;
+        }
+
         setLeadHistoryIds((current) => {
             if (current.includes(leadId)) {
                 return current;
@@ -535,6 +1669,95 @@ export default function AdminLeads() {
         setSelectedLeadId(remainingHistory[0] || filteredLeads.find((lead) => lead._id !== leadId)?._id || null);
     };
 
+    useEffect(() => {
+        setSelectedBulkLeadIds([]);
+        setIsAllDatabaseSelected(false);
+        setIsBulkMenuOpen(false);
+    }, [activeTab, activeCategoryTab, assignedAgentFilter, leadSearch]);
+
+    useEffect(() => {
+        if (!isLoading) {
+            setHasMoreLeads(leads.length >= LEAD_PAGE_SIZE && leads.length < activeTabTotalCount);
+        }
+    }, [activeTabTotalCount, isLoading, leads.length]);
+
+    const toggleBulkLead = (leadId: string) => {
+        setIsAllDatabaseSelected(false);
+        setSelectedBulkLeadIds((current) => (current.includes(leadId) ? current.filter((id) => id !== leadId) : [...current, leadId]));
+    };
+
+    const toggleAllVisibleLeads = () => {
+        if (activeTab === "ALL") {
+            if (isAllDatabaseSelected) {
+                setIsAllDatabaseSelected(false);
+                setSelectedBulkLeadIds([]);
+                return;
+            }
+
+            setIsAllDatabaseSelected(true);
+            setSelectedBulkLeadIds(selectableLeadIds);
+            return;
+        }
+
+        setSelectedBulkLeadIds((current) => {
+            if (areAllVisibleLeadsSelected) {
+                return current.filter((leadId) => !selectableLeadIds.includes(leadId));
+            }
+
+            return Array.from(new Set([...current, ...selectableLeadIds]));
+        });
+    };
+
+    const closeBulkPrompt = () => setBulkAction(null);
+
+    const confirmBulkAction = () => {
+        if (
+            bulkArchiveLeadsMutation.isPending ||
+            archiveAllActiveLeadsMutation.isPending ||
+            bulkRestoreLeadsMutation.isPending ||
+            bulkPermanentDeleteActiveMutation.isPending ||
+            bulkPermanentDeleteMutation.isPending ||
+            restoreAllArchivedLeadsMutation.isPending ||
+            permanentlyDeleteAllArchivedLeadsMutation.isPending
+        ) {
+            return;
+        }
+
+        if (bulkAction === "archive-all") {
+            archiveAllActiveLeadsMutation.mutate(undefined, { onSuccess: closeBulkPrompt });
+            return;
+        }
+
+        if (bulkAction === "archive") {
+            bulkArchiveLeadsMutation.mutate(selectedBulkLeadIds, { onSuccess: closeBulkPrompt });
+            return;
+        }
+
+        if (bulkAction === "delete-active-selected") {
+            bulkPermanentDeleteActiveMutation.mutate(selectedBulkLeadIds, { onSuccess: closeBulkPrompt });
+            return;
+        }
+
+        if (bulkAction === "restore") {
+            bulkRestoreLeadsMutation.mutate(selectedBulkLeadIds, { onSuccess: closeBulkPrompt });
+            return;
+        }
+
+        if (bulkAction === "delete-selected") {
+            bulkPermanentDeleteMutation.mutate(selectedBulkLeadIds, { onSuccess: closeBulkPrompt });
+            return;
+        }
+
+        if (bulkAction === "restore-all") {
+            restoreAllArchivedLeadsMutation.mutate(undefined, { onSuccess: closeBulkPrompt });
+            return;
+        }
+
+        if (bulkAction === "delete-all") {
+            permanentlyDeleteAllArchivedLeadsMutation.mutate(undefined, { onSuccess: closeBulkPrompt });
+        }
+    };
+
     const openLeadModal = () => {
         setLeadForm(emptyLead);
         setIsLeadModalOpen(true);
@@ -547,6 +1770,10 @@ export default function AdminLeads() {
 
     const handleSaveLead = (event: FormEvent<HTMLFormElement>) => {
         event.preventDefault();
+
+        if (createLeadMutation.isPending) {
+            return;
+        }
 
         if (!leadForm.businessName.trim()) {
             return;
@@ -581,44 +1808,143 @@ export default function AdminLeads() {
         }
     };
 
+    const handleExportLeads = async () => {
+        if (isExportingLeads) {
+            return;
+        }
+
+        setIsExportingLeads(true);
+
+        try {
+            const exportLimit = Math.min(Math.max(activeTabTotalCount, filteredLeads.length, LEAD_PAGE_SIZE), 10000);
+            const exportPage = await getAdminLeads({
+                ...leadQueryParams,
+                page: 1,
+                limit: exportLimit,
+                exportFile: true,
+            });
+            const categoryFilteredLeads =
+                activeCategoryTab === "ALL"
+                    ? exportPage.leads
+                    : exportPage.leads.filter((lead) => formatFilterLabel(lead.category || "").toLowerCase() === activeCategoryTab.toLowerCase());
+            const exportLeads = isAiSorted
+                ? [...categoryFilteredLeads].sort((first, second) => (second.aiScore || 0) - (first.aiScore || 0))
+                : categoryFilteredLeads;
+
+            if (exportLeads.length === 0) {
+                showToast({ tone: "info", message: "No leads found for this tab export." });
+                return;
+            }
+
+            const tabLabel = getTabLabel(activeTab);
+            const categoryLabel = activeCategoryTab === "ALL" ? "" : `-${activeCategoryTab}`;
+            const filename = slugifyExcelFilename(`admin-leads-${tabLabel}${categoryLabel}-${new Date().toISOString().slice(0, 10)}`);
+            downloadLeadExcelFile(filename, `${tabLabel} Leads`, exportLeads);
+            showToast({ tone: "success", message: `Exported ${exportLeads.length.toLocaleString()} lead${exportLeads.length === 1 ? "" : "s"} to Excel.` });
+
+            if (exportPage.hasMore) {
+                showToast({ tone: "info", message: "Export reached the 10,000-row limit. Narrow filters to export the rest." });
+            }
+        } catch {
+            showToast({ tone: "error", message: "Could not export leads. Please try again." });
+        } finally {
+            setIsExportingLeads(false);
+        }
+    };
+
+    const fetchMoreLeads = async () => {
+        if (isFetchingMoreLeads || isLoading || !hasMoreLeads) {
+            return;
+        }
+
+        const nextPage = leadPage + 1;
+        setIsFetchingMoreLeads(true);
+
+        try {
+            const nextLeadPage = await getAdminLeads({
+                ...leadQueryParams,
+                page: nextPage,
+                limit: LEAD_PAGE_SIZE,
+            });
+
+            queryClient.setQueryData<AdminLeadsPage>(leadQueryKey, (current) => {
+                if (!current) {
+                    return nextLeadPage;
+                }
+
+                return {
+                    ...nextLeadPage,
+                    leads: mergeLeadPages(current.leads, nextLeadPage.leads),
+                };
+            });
+            setLeadPage(nextPage);
+            setHasMoreLeads(nextLeadPage.hasMore);
+        } finally {
+            setIsFetchingMoreLeads(false);
+        }
+    };
+
+    const handleLeadListScroll = (event: UIEvent<HTMLDivElement>) => {
+        const target = event.currentTarget;
+        const remainingScroll = target.scrollHeight - target.scrollTop - target.clientHeight;
+
+        if (remainingScroll < 160) {
+            fetchMoreLeads();
+        }
+    };
+
     const handlePlacesSearch = (event: FormEvent<HTMLFormElement>) => {
         event.preventDefault();
 
         const location = [placesCity.trim(), placesState.trim()].filter(Boolean).join(", ");
+        const radiusMiles = Number(placesRadiusMiles) || 0;
         const category = formatFilterLabel(placesQuery.trim() || "businesses");
         const textQuery = [category, location].filter(Boolean).join(" in ");
 
         if (textQuery.trim()) {
             setPlaceResults([]);
             setActiveCategoryTab(category);
-            searchAndImportPlacesMutation.mutate({ textQuery, category });
+            setAutoSearchLocations([]);
+            searchAndImportPlacesMutation.mutate({ textQuery, category, location, radiusMiles, maxPages: 120 });
         }
     };
 
     const handleAutoPlacesSearch = () => {
         const product = placesProduct.trim() || "Popcorn vending machine";
         const location = [placesCity.trim(), placesState.trim()].filter(Boolean).join(", ");
+        const radiusMiles = Number(placesRadiusMiles) || 0;
 
         setPlaceResults([]);
         setAutoSearchQueries([]);
+        setAutoSearchLocations([]);
         setPlacesQuery(product);
         setActiveCategoryTab(formatFilterLabel(product));
-        autoSearchPlacesMutation.mutate({ product, location, maxResults: 10000 });
+        autoSearchPlacesMutation.mutate({ product, location, radiusMiles, maxResults: 10000, maxPages: 120 });
     };
 
     const leadPhone = selectedLead?.phone || "";
     const whatsappPhone = leadPhone.replace(/\D/g, "");
     const leadActivity = selectedLead ? getLeadActivity(selectedLead) : [];
+    const isQualifiedStatusDraft = statusDraft === "Qualified";
+    const shouldClearQualifiedFollowUp = Boolean(selectedLead && selectedLead.status === "Qualified" && selectedLead.followUpAt);
+    const hasStatusUpdate = Boolean(selectedLead && (statusDraft !== selectedLead.status || (isQualifiedStatusDraft && selectedLead.followUpAt)));
 
     useEffect(() => {
-        setCommentDraft(selectedLead?.notes || "");
-        setIsCommentEditing(false);
+        setCommentDraft("");
         setIsAssignEditing(false);
-        setAssignmentEmployeeId(selectedLead?.assignedAgent?._id || "");
-        setAssignmentName(selectedLead?.assignedAgent?.name || selectedLead?.assignedAgentName || "");
-    }, [selectedLead?._id, selectedLead?.notes]);
+        setIsDetailEditing(false);
+        setDetailDraft(createLeadDetailDraft(selectedLead));
+        const selectedSalesRep = salesRepEmployees.find((employee) => employee._id === selectedLead?.assignedAgent?._id);
+        setAssignmentEmployeeId(selectedSalesRep?._id || "");
+        setStatusDraft(selectedLead?.status || "NEW");
+        setFollowUpDateTime(formatCstDateTimeInput(selectedLead?.followUpAt) || getCurrentCstDateTimeInput());
+    }, [salesRepEmployees, selectedLead?._id, selectedLead?.notes, selectedLead?.status, selectedLead?.followUpAt]);
 
     const handleAiSort = () => {
+        if (scoreLeadsMutation.isPending) {
+            return;
+        }
+
         const leadIds = filteredLeads.map((lead) => lead._id);
 
         if (leadIds.length > 0) {
@@ -626,50 +1952,111 @@ export default function AdminLeads() {
         }
     };
     const handleScheduleFollowUp = () => {
+        if (scheduleFollowUpMutation.isPending) {
+            return;
+        }
+
         if (!selectedLead || !followUpDateTime) {
             return;
         }
 
-        scheduleFollowUpMutation.mutate({ id: selectedLead._id, followUpAt: new Date(followUpDateTime).toISOString() });
+        if (selectedLead.status === "Qualified" || statusDraft === "Qualified") {
+            showToast({ tone: "error", message: "Qualified leads do not use follow-up schedules." });
+            return;
+        }
+
+        const scheduledDate = parseCstDateTimeInput(followUpDateTime);
+
+        if (!scheduledDate) {
+            showToast({ tone: "error", message: "Use a valid follow-up date and time." });
+            return;
+        }
+
+        scheduleFollowUpMutation.mutate({ id: selectedLead._id, followUpAt: scheduledDate.toISOString() });
     };
     const handleSaveComment = () => {
+        if (addCommentMutation.isPending) {
+            return;
+        }
+
         if (!selectedLead) {
             return;
         }
 
-        saveCommentMutation.mutate({ lead: selectedLead, notes: commentDraft });
-    };
-    const cancelCommentEdit = () => {
-        setCommentDraft(selectedLead?.notes || "");
-        setIsCommentEditing(false);
+        const body = commentDraft.trim();
+
+        if (!body) {
+            return;
+        }
+
+        setCommentDraft("");
+        addCommentMutation.mutate({ leadId: selectedLead._id, body });
     };
     const handleSaveAssignment = () => {
-        if (!selectedLead) {
+        if (saveAssignmentMutation.isPending) {
+            return;
+        }
+
+        const selectedSalesRep = salesRepEmployees.find((employee) => employee._id === assignmentEmployeeId);
+
+        if (!selectedLead || !selectedSalesRep) {
             return;
         }
 
         saveAssignmentMutation.mutate({
             lead: selectedLead,
-            assignedAgent: assignmentEmployeeId || null,
-            assignedAgentName: assignmentName.trim(),
+            assignedAgent: selectedSalesRep._id,
+            assignedAgentName: selectedSalesRep.name,
         });
     };
     const cancelAssignmentEdit = () => {
-        setAssignmentEmployeeId(selectedLead?.assignedAgent?._id || "");
-        setAssignmentName(selectedLead?.assignedAgent?.name || selectedLead?.assignedAgentName || "");
+        const selectedSalesRep = salesRepEmployees.find((employee) => employee._id === selectedLead?.assignedAgent?._id);
+        setAssignmentEmployeeId(selectedSalesRep?._id || "");
         setIsAssignEditing(false);
     };
+
+    const handleSaveStatus = () => {
+        if (updateStatusMutation.isPending || !selectedLead || !hasStatusUpdate) {
+            return;
+        }
+
+        updateStatusMutation.mutate({ id: selectedLead._id, status: statusDraft });
+    };
+
+    const updateDetailDraft = (field: keyof LeadDetailDraft, value: string) => {
+        setDetailDraft((current) => ({ ...current, [field]: value }));
+    };
+
+    const cancelDetailEdit = () => {
+        setDetailDraft(createLeadDetailDraft(selectedLead));
+        setIsDetailEditing(false);
+    };
+
+    const handleSaveDetails = () => {
+        if (updateDetailsMutation.isPending) {
+            return;
+        }
+
+        if (!selectedLead || !detailDraft.businessName.trim()) {
+            return;
+        }
+
+        updateDetailsMutation.mutate({ lead: selectedLead, draft: detailDraft });
+    };
+
     const handleActivityAction = (action?: string) => {
         if (!selectedLead || !action) {
             return;
         }
 
         if (action === "assign") {
+            if (autoAssignLeadMutation.isPending) return;
             autoAssignLeadMutation.mutate(selectedLead._id);
             return;
         }
 
         if (action === "score") {
+            if (scoreLeadsMutation.isPending) return;
             scoreLeadsMutation.mutate([selectedLead._id]);
             return;
         }
@@ -679,9 +2066,54 @@ export default function AdminLeads() {
         }
     };
 
+    const queueCountQueryParams = useMemo(() => {
+        const params = {
+            ...leadQueryParams,
+            page: 1,
+            limit: 10000,
+            queue: "ALL" as LeadQueueFilter,
+        };
+
+        return params;
+    }, [
+        activeTab,
+        allStatusFilter,
+        assignedAgentFilter,
+        debouncedLeadSearch,
+        effectiveDateFromFilter,
+        effectiveDateToFilter,
+        leadStateFilter,
+        leadQueryParams,
+    ]);
+
+    useQuery({
+        queryKey: [
+            "admin-lead-queue-counts",
+            activeTab,
+            allStatusFilter,
+            assignedAgentFilter,
+            debouncedLeadSearch,
+            effectiveDateFromFilter,
+            effectiveDateToFilter,
+            leadStateFilter,
+        ],
+        queryFn: () => getAdminLeads(queueCountQueryParams),
+        enabled: usesLeadQueueFilter(activeTab),
+    });
+
+
+    const newLeadCount = leadCounts.NEW || 0;
+    const followUpLeadCount = leadCounts["Follow up"] || 0;
+
+    const queueFilterCounts: Record<LeadQueueFilter, number> = {
+        ALL: newLeadCount + followUpLeadCount,
+        NEW: newLeadCount,
+        "Follow up": followUpLeadCount,
+    };
+
     return (
         <AdminLayout>
-            <section className="min-h-[calc(100vh-8.5rem)]">
+            <section className="admin-leads-page -m-4 min-h-[calc(100vh-5.5rem)] p-4 2xl:-m-6 2xl:p-6">
                 <div className="border-b border-white/10">
                     <div className="flex flex-col gap-3 py-3 2xl:flex-row 2xl:items-end 2xl:justify-between">
                         <div className="content-scroll flex min-w-0 items-end gap-5 overflow-x-auto">
@@ -696,9 +2128,25 @@ export default function AdminLeads() {
                                             isActive ? "text-[#9b5cff]" : "text-white/60 hover:text-white",
                                         ].join(" ")}
                                         type="button"
-                                        onClick={() => setActiveTab(tab)}
+                                        onClick={() => {
+                                            setActiveTab(tab);
+                                            setActiveCategoryTab("ALL");
+                                            if (tab !== "NEW") {
+                                                setLeadQueueFilter("ALL");
+                                            }
+                                        }}
                                     >
-                                        {tab}
+                                        <span className="inline-flex items-center gap-1.5">
+                                            {getTabLabel(tab)}
+                                            <span
+                                                className={[
+                                                    "rounded-md px-1.5 py-0.5 text-[0.65rem] font-semibold",
+                                                    isActive ? "bg-[#842cff]/20 text-[#d7c3ff]" : "bg-white/[0.06] text-white/35",
+                                                ].join(" ")}
+                                            >
+                                                {getTabCount(tab)}
+                                            </span>
+                                        </span>
                                         {isActive && <span className="absolute inset-x-0 bottom-0 h-0.5 rounded-full bg-[#842cff]" />}
                                     </button>
                                 );
@@ -714,7 +2162,7 @@ export default function AdminLeads() {
                                 onChange={(event) => void handleLeadImport(event.target.files?.[0] || null)}
                             />
                             <button
-                                className="flex h-9 items-center gap-2 rounded-lg border border-white/10 bg-white/[0.06] px-3 text-xs font-semibold text-white/70 transition hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                                className="flat-action-button flat-action-import flex h-9 items-center gap-2 rounded-lg border border-[#10ac84] bg-[#10ac84] px-3 text-xs font-semibold text-white shadow-sm shadow-[#10ac84]/20 transition hover:border-[#0b8f6e] hover:bg-[#0b8f6e] disabled:cursor-not-allowed disabled:opacity-100"
                                 type="button"
                                 onClick={() => importInputRef.current?.click()}
                                 disabled={importLeadsMutation.isPending}
@@ -727,7 +2175,20 @@ export default function AdminLeads() {
                                 {importLeadsMutation.isPending ? "Importing" : "Import"}
                             </button>
                             <button
-                                className="flex h-9 items-center gap-2 rounded-lg border border-white/10 bg-white/[0.06] px-3 text-xs font-semibold text-white/70 transition hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                                className="flat-action-button flex h-9 items-center gap-2 rounded-lg border border-[#1dd1a1] bg-white px-3 text-xs font-semibold !text-black shadow-sm shadow-[#1dd1a1]/15 transition hover:border-[#10ac84] hover:bg-[#ecfff8] disabled:cursor-not-allowed disabled:opacity-70"
+                                type="button"
+                                onClick={() => void handleExportLeads()}
+                                disabled={isExportingLeads || isLoading}
+                                title={`Export ${getTabLabel(activeTab)} tab to Excel`}
+                            >
+                                <FiDownload
+                                    className={["size-4 !text-black", isExportingLeads ? "animate-bounce" : ""].join(" ")}
+                                    aria-hidden="true"
+                                />
+                                {isExportingLeads ? "Exporting" : "Export Excel"}
+                            </button>
+                            <button
+                                className="flat-action-button flat-action-reassign flex h-9 items-center gap-2 rounded-lg border border-[#2e86de] bg-[#2e86de] px-3 text-xs font-semibold text-white shadow-sm shadow-[#2e86de]/20 transition hover:border-[#1f6fbf] hover:bg-[#1f6fbf] disabled:cursor-not-allowed disabled:opacity-100"
                                 type="button"
                                 onClick={() => reassignNewLeadsMutation.mutate()}
                                 disabled={reassignNewLeadsMutation.isPending || leads.every((lead) => lead.status !== "NEW")}
@@ -740,7 +2201,7 @@ export default function AdminLeads() {
                                 {reassignNewLeadsMutation.isPending ? "Assigning" : "Reassign new"}
                             </button>
                             <button
-                                className="flex h-9 items-center gap-2 rounded-lg border border-white/10 bg-white/[0.06] px-3 text-xs font-semibold text-white/70 transition hover:bg-white/10 hover:text-white"
+                                className="flat-action-button flat-action-auto-update flex h-9 items-center gap-2 rounded-lg border border-[#ff9f43] bg-[#ff9f43] px-3 text-xs font-semibold text-white shadow-sm shadow-[#ff9f43]/20 transition hover:border-[#e67f1d] hover:bg-[#e67f1d]"
                                 type="button"
                                 onClick={() => setIsPlacesOpen(true)}
                             >
@@ -748,7 +2209,7 @@ export default function AdminLeads() {
                                 Auto update leads
                             </button>
                             <button
-                                className="flex h-9 items-center gap-2 rounded-lg bg-[linear-gradient(135deg,#842cff,#4a0ebd)] px-3 text-xs font-semibold text-white transition hover:brightness-110"
+                                className="canada-action-add flex h-9 items-center gap-2 rounded-lg border border-[#5f27cd] bg-[#5f27cd] px-3 text-xs font-semibold text-white shadow-sm shadow-[#5f27cd]/20 transition hover:border-[#4f1fb0] hover:bg-[#4f1fb0]"
                                 type="button"
                                 onClick={openLeadModal}
                             >
@@ -765,7 +2226,7 @@ export default function AdminLeads() {
                 </div>
 
                 <div className="grid h-[calc(100vh-15rem)] min-h-[24rem] gap-4 pt-4 xl:h-[calc(100vh-14rem)] xl:grid-cols-[minmax(15rem,19rem)_1fr] 2xl:h-[calc(100vh-12rem)] 2xl:gap-5 2xl:pt-5">
-                    <section className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-white/10 bg-[#090b13]/80">
+                    <section className="admin-leads-list-panel relative z-30 flex min-h-0 flex-col overflow-visible rounded-lg border border-white/10 bg-[#f100ff30]">
                         <div className="flex h-14 items-center justify-between border-b border-white/10 px-5">
                             <div>
                                 <h2 className="text-base font-semibold text-white">Leads</h2>
@@ -775,9 +2236,9 @@ export default function AdminLeads() {
                                     </p>
                                 )}
                             </div>
-                            <div className="flex items-center gap-2">
+                            <div className="relative flex items-center gap-2">
                                 <button
-                                    className="flex h-8 items-center gap-1.5 rounded-lg border border-[#842cff]/30 bg-[#842cff]/10 px-2.5 text-xs font-semibold text-[#cbb7ff] transition hover:bg-[#842cff]/20 disabled:cursor-not-allowed disabled:opacity-60"
+                                    className="flex h-8 items-center gap-1.5 rounded-lg border border-[#00d2d3] bg-[#00d2d3] px-2.5 text-xs font-semibold text-white transition hover:border-[#01a3a4] hover:bg-[#01a3a4] disabled:cursor-not-allowed disabled:opacity-80"
                                     type="button"
                                     onClick={handleAiSort}
                                     disabled={scoreLeadsMutation.isPending || filteredLeads.length === 0}
@@ -788,7 +2249,280 @@ export default function AdminLeads() {
                                 <span className="rounded-md bg-white/[0.06] px-2 py-1 text-xs font-medium text-white/55">
                                     {filteredLeads.length}
                                 </span>
+                                {(activeTab === "ALL" || activeTab === "Unassigned" || activeTab === "Archived" || activeTab === "NEW") && (
+                                    <div ref={bulkMenuRef} className="relative">
+                                        <button
+                                            className="flex size-8 items-center justify-center rounded-lg border border-white/10 bg-white/[0.04] text-white/55 transition hover:bg-white/[0.08] hover:text-white"
+                                            type="button"
+                                            onClick={() => {
+                                                setIsBulkMenuOpen((isOpen) => !isOpen);
+                                                setIsBulkAssignMenuOpen(false);
+                                            }}
+                                            aria-label="Lead bulk actions"
+                                        >
+                                            <FiMoreVertical className="size-4" aria-hidden="true" />
+                                        </button>
+                                        {isBulkMenuOpen && (
+                                            <div className="absolute right-0 top-10 z-50 w-52 overflow-visible rounded-lg border border-white/10 bg-[#0d1018] p-1 shadow-2xl shadow-black/40">
+                                                <button
+                                                    className="flex h-9 w-full items-center justify-between rounded-md px-3 text-left text-xs font-semibold text-white/70 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                                                    type="button"
+                                                    onClick={() => {
+                                                        toggleAllVisibleLeads();
+                                                    }}
+                                                    disabled={selectableLeadCount === 0}
+                                                >
+                                                    <span className="flex items-center gap-2">
+                                                        {areAllVisibleLeadsSelected ? <FiCheckSquare className="size-3.5 text-[#9b5cff]" aria-hidden="true" /> : <FiSquare className="size-3.5" aria-hidden="true" />}
+                                                        {areAllVisibleLeadsSelected ? "Clear selection" : "Select all"}
+                                                    </span>
+                                                    <span className="text-white/35">{selectedBulkLabel}</span>
+                                                </button>
+                                                {(activeTab === "ALL" || activeTab === "Unassigned" || activeTab === "NEW") && (
+                                                    <>
+                                                        <div className="relative">
+                                                            <button
+                                                                className="flex h-9 w-full items-center justify-between rounded-md px-3 text-left text-xs font-semibold !text-black transition hover:bg-[#2e86de]/15 hover:!text-black disabled:cursor-not-allowed disabled:!text-black disabled:opacity-100"
+                                                                type="button"
+                                                                disabled={selectedBulkCount === 0 || bulkAssignLeadsMutation.isPending}
+                                                                onClick={() => setIsBulkAssignMenuOpen((isOpen) => !isOpen)}
+                                                            >
+                                                                <span className="flex items-center gap-2">
+                                                                    <FiUserPlus className="size-3.5 !text-black" aria-hidden="true" />
+                                                                    Assign to
+                                                                </span>
+                                                                <FiChevronRight className="size-3.5 !text-black" aria-hidden="true" />
+                                                            </button>
+                                                            {isBulkAssignMenuOpen && (
+                                                                <div className="bulk-assign-submenu absolute left-[calc(100%+0.35rem)] top-0 z-[60] max-h-64 w-60 overflow-y-auto rounded-lg border border-slate-300 bg-white p-1 text-slate-950 shadow-2xl shadow-black/25">
+                                                                    <button
+                                                                        className="flex min-h-9 w-full flex-col items-start justify-center rounded-md px-3 py-2 text-left text-xs font-semibold !text-slate-950 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                                                        type="button"
+                                                                        disabled={bulkAssignLeadsMutation.isPending}
+                                                                        onClick={() => {
+                                                                            bulkAssignLeadsMutation.mutate({
+                                                                                leadIds: selectedBulkLeadIds,
+                                                                                assignedAgent: "UNASSIGNED",
+                                                                                assignedAgentName: "",
+                                                                            });
+                                                                            setIsBulkMenuOpen(false);
+                                                                            setIsBulkAssignMenuOpen(false);
+                                                                        }}
+                                                                    >
+                                                                        <span>Unassign</span>
+                                                                        <span className="mt-0.5 text-[0.65rem] font-medium !text-slate-500">Clear assigned agent</span>
+                                                                    </button>
+                                                                    <div className="my-1 h-px bg-slate-200" />
+                                                                    {salesRepEmployees.length === 0 && (
+                                                                        <p className="px-3 py-2 text-xs font-semibold !text-slate-500">No active Sales Reps</p>
+                                                                    )}
+                                                                    {salesRepEmployees.map((employee) => (
+                                                                        <button
+                                                                            key={employee._id}
+                                                                            className="flex min-h-9 w-full flex-col items-start justify-center rounded-md px-3 py-2 text-left text-xs font-semibold !text-slate-950 transition hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                                                            type="button"
+                                                                            disabled={bulkAssignLeadsMutation.isPending}
+                                                                            onClick={() => {
+                                                                                bulkAssignLeadsMutation.mutate({
+                                                                                    leadIds: selectedBulkLeadIds,
+                                                                                    assignedAgent: employee._id,
+                                                                                    assignedAgentName: employee.name,
+                                                                                });
+                                                                                setIsBulkMenuOpen(false);
+                                                                                setIsBulkAssignMenuOpen(false);
+                                                                            }}
+                                                                        >
+                                                                            <span>{employee.name}</span>
+                                                                            <span className="mt-0.5 text-[0.65rem] font-medium !text-slate-500">
+                                                                                {[employee.role, employee.team].filter(Boolean).join(" · ") || "Agent"}
+                                                                            </span>
+                                                                        </button>
+                                                                    ))}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                        <button
+                                                            className="flex h-9 w-full items-center gap-2 rounded-md px-3 text-left text-xs font-semibold text-white/70 transition hover:bg-red-500/10 hover:text-red-100 disabled:cursor-not-allowed disabled:opacity-40"
+                                                            type="button"
+                                                            disabled={selectedBulkCount === 0 || bulkArchiveLeadsMutation.isPending || archiveAllActiveLeadsMutation.isPending}
+                                                            onClick={() => {
+                                                                setBulkAction(isAllDatabaseSelected ? "archive-all" : "archive");
+                                                                setIsBulkMenuOpen(false);
+                                                                setIsBulkAssignMenuOpen(false);
+                                                            }}
+                                                        >
+                                                            <FiArchive className="size-3.5" aria-hidden="true" />
+                                                            {isAllDatabaseSelected ? "Archive all" : "Archive selected"}
+                                                        </button>
+                                                        <button
+                                                            className="flex h-9 w-full items-center gap-2 rounded-md px-3 text-left text-xs font-semibold text-white/70 transition hover:bg-red-500/10 hover:text-red-100 disabled:cursor-not-allowed disabled:opacity-40"
+                                                            type="button"
+                                                            disabled={selectedBulkCount === 0 || isAllDatabaseSelected || bulkPermanentDeleteActiveMutation.isPending}
+                                                            onClick={() => {
+                                                                setBulkAction("delete-active-selected");
+                                                                setIsBulkMenuOpen(false);
+                                                                setIsBulkAssignMenuOpen(false);
+                                                            }}
+                                                        >
+                                                            <FiTrash2 className="size-3.5" aria-hidden="true" />
+                                                            Delete selected
+                                                        </button>
+                                                    </>
+                                                )}
+                                                {activeTab === "Archived" && (
+                                                    <>
+                                                        <button
+                                                            className="flex h-9 w-full items-center gap-2 rounded-md px-3 text-left text-xs font-semibold text-white/70 transition hover:bg-emerald-400/10 hover:text-emerald-100 disabled:cursor-not-allowed disabled:opacity-40"
+                                                            type="button"
+                                                            disabled={selectedBulkCount === 0 || bulkRestoreLeadsMutation.isPending}
+                                                            onClick={() => {
+                                                                setBulkAction("restore");
+                                                                setIsBulkMenuOpen(false);
+                                                            }}
+                                                        >
+                                                            <FiRotateCcw className="size-3.5" aria-hidden="true" />
+                                                            Restore selected
+                                                        </button>
+                                                        <button
+                                                            className="flex h-9 w-full items-center gap-2 rounded-md px-3 text-left text-xs font-semibold text-white/70 transition hover:bg-red-500/10 hover:text-red-100 disabled:cursor-not-allowed disabled:opacity-40"
+                                                            type="button"
+                                                            disabled={selectedBulkCount === 0 || bulkPermanentDeleteMutation.isPending}
+                                                            onClick={() => {
+                                                                setBulkAction("delete-selected");
+                                                                setIsBulkMenuOpen(false);
+                                                            }}
+                                                        >
+                                                            <FiTrash2 className="size-3.5" aria-hidden="true" />
+                                                            Delete selected
+                                                        </button>
+                                                        <div className="my-1 h-px bg-white/10" />
+                                                        <button
+                                                            className="flex h-9 w-full items-center gap-2 rounded-md px-3 text-left text-xs font-semibold text-white/70 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                                                            type="button"
+                                                            disabled={archivedLeadCount === 0 || restoreAllArchivedLeadsMutation.isPending}
+                                                            onClick={() => {
+                                                                setBulkAction("restore-all");
+                                                                setIsBulkMenuOpen(false);
+                                                            }}
+                                                        >
+                                                            Restore all
+                                                        </button>
+                                                        <button
+                                                            className="flex h-9 w-full items-center gap-2 rounded-md px-3 text-left text-xs font-semibold text-white/70 transition hover:bg-red-500/10 hover:text-red-100 disabled:cursor-not-allowed disabled:opacity-40"
+                                                            type="button"
+                                                            disabled={archivedLeadCount === 0 || permanentlyDeleteAllArchivedLeadsMutation.isPending}
+                                                            onClick={() => {
+                                                                setBulkAction("delete-all");
+                                                                setIsBulkMenuOpen(false);
+                                                            }}
+                                                        >
+                                                            Delete all
+                                                        </button>
+                                                    </>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
                             </div>
+                        </div>
+
+                        <div className="grid gap-2.5 border-b border-white/10 bg-black/[0.04] px-4 py-3">
+                            <label className="flex h-9 min-w-0 items-center gap-2 rounded-lg border border-white/12 bg-white/[0.08] px-3 text-white/45 shadow-sm shadow-black/5 focus-within:border-[#842cff]/70 focus-within:bg-white/[0.11] focus-within:ring-2 focus-within:ring-[#842cff]/20">
+                                <FiSearch className="size-3.5 shrink-0" aria-hidden="true" />
+                                <input
+                                    className="h-full min-w-0 flex-1 bg-transparent text-xs font-semibold text-white outline-none placeholder:text-white/30"
+                                    value={leadSearch}
+                                    onChange={(event) => setLeadSearch(event.target.value)}
+                                    placeholder="Search leads"
+                                />
+                            </label>
+                            <div className={usesLeadQueueFilter(activeTab) || activeTab === "ALL" ? "grid grid-cols-2 gap-2" : "grid gap-2"}>
+                                <select
+                                    className="h-9 min-w-0 rounded-lg border border-white/12 bg-[#16101f] px-3 text-xs font-semibold text-white outline-none transition hover:bg-[#1b1227] focus:border-[#842cff]/70 focus:ring-2 focus:ring-[#842cff]/20"
+                                    value={leadStateFilter}
+                                    onChange={(event) => {
+                                        setLeadStateFilter(event.target.value);
+                                        setActiveCategoryTab("ALL");
+                                    }}
+                                    disabled={isLoading || leadStateOptions.length === 0}
+                                    aria-label="Filter leads by state"
+                                >
+                                    <option value="ALL">All states</option>
+                                    {leadStateOptions.map((option) => (
+                                        <option key={option.code} value={option.code}>
+                                            {option.name}
+                                        </option>
+                                    ))}
+                                </select>
+                                <select
+                                    className="h-9 min-w-0 rounded-lg border border-white/12 bg-[#16101f] px-3 text-xs font-semibold text-white outline-none transition hover:bg-[#1b1227] focus:border-[#842cff]/70 focus:ring-2 focus:ring-[#842cff]/20"
+                                    value={assignedAgentFilter}
+                                    onChange={(e) => setAssignedAgentFilter(e.target.value)}
+                                    disabled={isAgentDropdownLoading}
+                                >
+                                    {isAgentDropdownLoading ? (
+                                        <option value="">Loading agents...</option>
+                                    ) : (
+                                        <>
+                                            <option value="ALL">All</option>
+                                            <option value="UNASSIGNED">Unassigned</option>
+
+                                            {assignedAgentOptions.map(([id, name]) => (
+                                                <option key={id} value={id}>
+                                                    {name}
+                                                </option>
+                                            ))}
+                                        </>
+                                    )}
+                                </select>
+                                {usesLeadQueueFilter(activeTab) && (
+                                    <select
+                                        className="h-9 min-w-0 rounded-lg border border-white/12 bg-[#16101f] px-3 text-xs font-semibold text-white outline-none transition hover:bg-[#1b1227] focus:border-[#842cff]/70 focus:ring-2 focus:ring-[#842cff]/20"
+                                        value={leadQueueFilter}
+                                        onChange={(event) => {
+                                            setLeadQueueFilter(event.target.value as LeadQueueFilter);
+                                            setActiveCategoryTab("ALL");
+                                        }}
+                                        aria-label="Filter leads by status"
+                                    >
+                                        {(["ALL", "NEW", "Follow up"] as LeadQueueFilter[]).map((filter) => {
+                                            const count = queueFilterCounts[filter];
+
+                                            return (
+                                                <option key={filter} value={filter}>
+                                                    {filter === "ALL"
+                                                        ? "All statuses"
+                                                        : `${getLeadQueueFilterLabel(filter)} (${count})`}
+                                                </option>
+                                            );
+                                        })}
+                                    </select>
+                                )}
+                                {activeTab === "ALL" && (
+                                    <select
+                                        className="h-9 min-w-0 rounded-lg border border-white/12 bg-[#16101f] px-3 text-xs font-semibold text-white outline-none transition hover:bg-[#1b1227] focus:border-[#842cff]/70 focus:ring-2 focus:ring-[#842cff]/20"
+                                        value={allStatusFilter}
+                                        onChange={(event) => {
+                                            setAllStatusFilter(event.target.value as AllStatusFilter);
+                                            setActiveCategoryTab("ALL");
+                                        }}
+                                        aria-label="Filter all leads by status"
+                                    >
+                                        {allStatusFilters.map((status) => (
+                                            <option key={status} value={status}>
+                                                {status === "ALL" ? "All statuses" : `${status} (${leadCounts[status] || 0})`}
+                                            </option>
+                                        ))}
+                                    </select>
+                                )}
+                            </div>
+                            {shouldUseDateRangeFilter && (
+                                <div className="grid grid-cols-2 gap-2">
+                                    <LeadDatePicker label="From" value={dateFromFilter} onChange={setDateFromFilter} />
+                                    <LeadDatePicker label="To" value={dateToFilter} onChange={setDateToFilter} align="right" />
+                                </div>
+                            )}
                         </div>
 
                         <div className="content-scroll flex gap-2 overflow-x-auto border-b border-white/10 px-4 py-3">
@@ -801,8 +2535,8 @@ export default function AdminLeads() {
                                         className={[
                                             "h-8 shrink-0 rounded-lg border px-3 text-xs font-semibold transition",
                                             isActive
-                                                ? "border-[#842cff] bg-[#842cff]/20 text-white"
-                                                : "border-white/10 bg-white/[0.04] text-white/55 hover:bg-white/[0.07] hover:text-white",
+                                                ? "border-[#54a0ff] bg-[#54a0ff] text-white"
+                                                : "border-[#2e86de] bg-[#2e86de] text-white hover:border-[#1f6fbf] hover:bg-[#1f6fbf]",
                                         ].join(" ")}
                                         type="button"
                                         onClick={() => setActiveCategoryTab(category)}
@@ -813,50 +2547,87 @@ export default function AdminLeads() {
                             })}
                         </div>
 
-                        <div className="content-scroll min-h-0 flex-1 divide-y divide-white/10 overflow-y-auto">
+                        <div className="content-scroll min-h-0 flex-1 divide-y divide-white/10 overflow-y-auto" onScroll={handleLeadListScroll}>
                             {isLoading && <p className="px-5 py-6 text-sm text-white/45">Loading leads...</p>}
                             {isError && <p className="px-5 py-6 text-sm text-red-200">Unable to load leads.</p>}
                             {!isLoading && !isError && filteredLeads.length === 0 && (
                                 <p className="px-5 py-6 text-sm text-white/45">No leads in this tab.</p>
                             )}
-                            {filteredLeads.map((lead) => (
-                                <button
-                                    key={lead._id}
-                                    className={[
-                                        "flex w-full items-center justify-between gap-4 px-5 py-4 text-left transition",
-                                        selectedLead?._id === lead._id ? "bg-white/[0.07]" : "hover:bg-white/[0.04]",
-                                    ].join(" ")}
-                                    type="button"
-                                    onClick={() => selectLead(lead._id)}
-                                >
-                                    <span className="min-w-0">
-                                        <span className="block truncate text-sm font-semibold text-white">
-                                            {lead.leadName || lead.businessName}
-                                        </span>
-                                        <span className="mt-1 block truncate text-xs text-white/45">{lead.businessName}</span>
-                                    </span>
-                                    <span className="shrink-0 text-right">
-                                        <span className="block text-xs font-semibold text-white/45">
-                                            {lead.category || lead.source}
-                                        </span>
-                                        <span className="mt-1 block text-xs text-[#9b5cff]">{lead.status}</span>
-                                        {lead.followUpAt && (
-                                            <span className="mt-1 block text-xs font-semibold text-[#fbbf24]">
-                                                Follow-up
-                                            </span>
+                            {filteredLeads.map((lead) => {
+                                const isBulkSelectable =
+                                    ((activeTab === "ALL" ||
+                                        activeTab === "Unassigned" ||
+                                        activeTab === "NEW") &&
+                                        lead.status !== "Archived") ||
+                                    (activeTab === "Archived" && lead.status === "Archived");
+                                const isBulkSelected = (isAllDatabaseSelected && activeTab === "ALL" && lead.status !== "Archived") || selectedBulkLeadIds.includes(lead._id);
+                                const isCallPriority = isCallPriorityLead(lead);
+                                const isScheduledToday = isScheduledForToday(lead);
+
+                                return (
+                                    <div
+                                        key={lead._id}
+                                        className={[
+                                            "flex w-full items-center gap-3 px-5 py-4 transition",
+                                            selectedLead?._id === lead._id ? "bg-white/[0.07]" : "hover:bg-white/[0.04]",
+                                        ].join(" ")}
+                                    >
+                                        {isBulkSelectable && (
+                                            <button
+                                                className="flex size-5 shrink-0 items-center justify-center rounded border border-white/15 bg-black/20 text-white/60 transition hover:border-[#842cff]/60 hover:text-white"
+                                                type="button"
+                                                onClick={() => toggleBulkLead(lead._id)}
+                                                aria-label={isBulkSelected ? "Unselect lead" : "Select lead"}
+                                            >
+                                                {isBulkSelected ? <FiCheckSquare className="size-4 text-[#9b5cff]" aria-hidden="true" /> : <FiSquare className="size-4" aria-hidden="true" />}
+                                            </button>
                                         )}
-                                        {isAiSorted && (
-                                            <span className="mt-1 block text-xs font-semibold text-[#9df6b7]">
-                                                {lead.aiScore || 0}/100
+                                        <button
+                                            className="flex min-w-0 flex-1 items-center justify-between gap-4 text-left"
+                                            type="button"
+                                            onClick={() => selectLead(lead._id)}
+                                        >
+                                            <span className="min-w-0">
+                                                <span className="block truncate text-sm font-semibold text-white">
+                                                    {lead.leadName || lead.businessName}
+                                                </span>
+                                                <span className="mt-1 block truncate text-xs text-white/45">{lead.businessName}</span>
                                             </span>
-                                        )}
-                                    </span>
-                                </button>
-                            ))}
+                                            <span className="shrink-0 text-right">
+                                                <span className="block text-xs font-semibold text-white/45">
+                                                    {lead.category || lead.source}
+                                                </span>
+                                                <span className="mt-1 flex items-center justify-end gap-1.5 text-xs text-[#9b5cff]">
+                                                    {isCallPriority && (
+                                                        <FiCheckCircle className="size-3.5 text-sky-400" aria-hidden="true" />
+                                                    )}
+                                                    {isScheduledToday && (
+                                                        <FiClock className="size-3.5 text-red-400" aria-hidden="true" />
+                                                    )}
+                                                    <span>{lead.status}</span>
+                                                </span>
+                                                {isAiSorted && (
+                                                    <span className="mt-1 block text-xs font-semibold text-[#9df6b7]">
+                                                        {lead.aiScore || 0}/100
+                                                    </span>
+                                                )}
+                                            </span>
+                                        </button>
+                                    </div>
+                                );
+                            })}
+                            {!isLoading && !isError && isFetchingMoreLeads && (
+                                <p className="px-5 py-4 text-center text-xs font-semibold text-white/35">
+                                    Loading leads... {leads.length.toLocaleString()} / {activeTabTotalCount.toLocaleString()}
+                                </p>
+                            )}
+                            {!isLoading && !isError && filteredLeads.length > 0 && !hasMoreLeads && (
+                                <p className="px-5 py-4 text-center text-xs font-semibold text-white/25">End of list</p>
+                            )}
                         </div>
                     </section>
 
-                    <section className="flex min-h-0 flex-col overflow-hidden">
+                    <section className="admin-lead-detail-area flex min-h-0 flex-col overflow-hidden">
                         <div className="flex min-h-14 flex-wrap items-center justify-between gap-3 px-1 py-1">
                             <div>
                                 <h2 className="text-base font-semibold text-white">Lead Details</h2>
@@ -864,18 +2635,42 @@ export default function AdminLeads() {
                             </div>
 
                             {selectedLead && (
-                                <button
-                                    className="flex h-10 items-center gap-2 rounded-lg border border-white/10 bg-white/[0.06] px-3 text-sm font-semibold text-white/70 transition hover:bg-white/10 hover:text-white"
-                                    type="button"
-                                    onClick={() => openDeletePrompt(selectedLead)}
-                                >
-                                    <FiArchive className="size-4" aria-hidden="true" />
-                                    Archive
-                                </button>
+                                <div className="flex items-center gap-2">
+                                    {selectedLead.status === "Archived" ? (
+                                        <>
+                                            <button
+                                                className="flex h-10 items-center gap-2 rounded-lg border border-emerald-300/20 bg-emerald-400/10 px-3 text-sm font-semibold text-emerald-100/80 transition hover:bg-emerald-400/15 hover:text-emerald-50 disabled:opacity-60"
+                                                type="button"
+                                                onClick={() => restoreLeadMutation.mutate(selectedLead._id)}
+                                                disabled={restoreLeadMutation.isPending}
+                                            >
+                                                <FiRotateCcw className="size-4" aria-hidden="true" />
+                                                Restore
+                                            </button>
+                                            <button
+                                                className="flex h-10 items-center gap-2 rounded-lg border border-red-400/25 bg-red-500/10 px-3 text-sm font-semibold text-red-100/80 transition hover:bg-red-500/15 hover:text-red-50"
+                                                type="button"
+                                                onClick={() => openDeletePrompt(selectedLead)}
+                                            >
+                                                <FiTrash2 className="size-4" aria-hidden="true" />
+                                                Delete
+                                            </button>
+                                        </>
+                                    ) : (
+                                        <button
+                                            className="archive-lead-button flex h-10 items-center gap-2 rounded-lg border border-[#ee5253] bg-[#ee5253] px-3 text-sm font-semibold text-white shadow-sm shadow-[#ee5253]/20 transition hover:border-[#d94546] hover:bg-[#d94546]"
+                                            type="button"
+                                            onClick={() => openDeletePrompt(selectedLead)}
+                                        >
+                                            <FiArchive className="size-4" aria-hidden="true" />
+                                            Archive
+                                        </button>
+                                    )}
+                                </div>
                             )}
                         </div>
 
-                        {leadHistory.length > 0 && (
+                        {showLeadMiniTabs && leadHistory.length > 0 && (
                             <div className="bg-black/10 px-4 pt-2">
                                 <div className="content-scroll flex gap-1 overflow-x-auto">
                                     {leadHistory.map((lead) => {
@@ -917,42 +2712,65 @@ export default function AdminLeads() {
                         {selectedLead ? (
                             <div className="content-scroll grid min-h-0 flex-1 gap-5 overflow-y-auto p-5 pr-3 xl:grid-cols-[minmax(0,1fr)_20rem]">
                                 <div className="space-y-5">
-                                    <div className="rounded-lg border border-white/10 bg-white/[0.04] p-5">
-                                        <div className="flex flex-wrap items-start justify-between gap-4">
-                                            <div className="min-w-0">
+                                    <div className="relative rounded-lg border border-white/10 bg-white/[0.04] p-5">
+                                        <div className="grid gap-4 pr-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start sm:pr-40">
+                                            <div className="min-w-0 sm:order-1">
                                                 <p className="text-sm text-white/45">Lead Name</p>
-                                                <h3 className="mt-1 text-2xl font-semibold text-white">
-                                                    {selectedLead.leadName || "No contact name"}
-                                                </h3>
-                                                <p className="mt-1 text-sm text-white/55">{selectedLead.position || "No position"}</p>
+                                                {isDetailEditing ? (
+                                                    <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                                                        <input
+                                                            className="h-10 rounded-lg border border-white/10 bg-black/20 px-3 text-sm font-semibold text-white outline-none transition placeholder:text-white/30 focus:border-[#842cff] focus:ring-2 focus:ring-[#842cff]/20"
+                                                            value={detailDraft.leadName}
+                                                            onChange={(event) => updateDetailDraft("leadName", event.target.value)}
+                                                            placeholder="Lead name"
+                                                        />
+                                                        <input
+                                                            className="h-10 rounded-lg border border-white/10 bg-black/20 px-3 text-sm font-semibold text-white outline-none transition placeholder:text-white/30 focus:border-[#842cff] focus:ring-2 focus:ring-[#842cff]/20"
+                                                            value={detailDraft.position}
+                                                            onChange={(event) => updateDetailDraft("position", event.target.value)}
+                                                            placeholder="Position"
+                                                        />
+                                                    </div>
+                                                ) : (
+                                                    <>
+                                                        <h3 className="mt-1 text-2xl font-semibold text-white">
+                                                            {selectedLead.leadName || "No contact name"}
+                                                        </h3>
+                                                        <p className="mt-1 text-sm text-white/55">{selectedLead.position || "No position"}</p>
+                                                    </>
+                                                )}
                                             </div>
 
-                                            <div className="flex items-center gap-2">
+                                            <div className="flex items-center gap-2 sm:absolute sm:right-5 sm:top-5 sm:order-2 sm:justify-end">
                                                 <a
-                                                    className="flex size-9 items-center justify-center rounded-lg border border-white/10 bg-white/[0.06] text-white/70 transition hover:bg-white/10 hover:text-white"
+                                                    className="flex size-9 items-center justify-center rounded-lg border border-[#10ac84] bg-[#10ac84] text-white transition hover:border-[#0b8f6e] hover:bg-[#0b8f6e]"
                                                     href={`tel:${selectedLead.phone}`}
                                                     aria-label="Call lead"
                                                 >
                                                     <FiPhone className="size-4" aria-hidden="true" />
                                                 </a>
                                                 <a
-                                                    className="flex size-9 items-center justify-center rounded-lg border border-white/10 bg-white/[0.06] text-white/70 transition hover:bg-white/10 hover:text-white"
+                                                    className="flex size-9 items-center justify-center rounded-lg border border-[#2e86de] bg-[#2e86de] text-white transition hover:border-[#1f6fbf] hover:bg-[#1f6fbf]"
                                                     href={`mailto:${selectedLead.email}`}
                                                     aria-label="Email lead"
                                                 >
                                                     <FiMail className="size-4" aria-hidden="true" />
                                                 </a>
                                                 <a
-                                                    className="flex size-9 items-center justify-center rounded-lg border border-[#25d366]/30 bg-[#25d366]/10 text-[#7cf0a4] transition hover:bg-[#25d366]/20"
+                                                    className="flex size-9 items-center justify-center rounded-lg border border-[#1dd1a1] bg-[#1dd1a1] text-white transition hover:border-[#10ac84] hover:bg-[#10ac84]"
                                                     href={`https://wa.me/${whatsappPhone}`}
                                                     aria-label="WhatsApp lead"
                                                 >
                                                     <FaWhatsapp className="size-4" aria-hidden="true" />
                                                 </a>
                                                 <button
-                                                    className="flex size-9 items-center justify-center rounded-lg border border-white/10 bg-white/[0.06] text-white/70 transition hover:bg-white/10 hover:text-white"
+                                                    className="flex size-9 items-center justify-center rounded-lg border border-[#5f27cd] bg-[#5f27cd] text-white transition hover:border-[#4f1fb0] hover:bg-[#4f1fb0]"
                                                     type="button"
                                                     aria-label="Edit lead"
+                                                    onClick={() => {
+                                                        setDetailDraft(createLeadDetailDraft(selectedLead));
+                                                        setIsDetailEditing(true);
+                                                    }}
                                                 >
                                                     <FiEdit2 className="size-4" aria-hidden="true" />
                                                 </button>
@@ -962,38 +2780,115 @@ export default function AdminLeads() {
                                         <div className="mt-5 grid gap-4 md:grid-cols-2">
                                             <div>
                                                 <p className="text-xs font-medium uppercase tracking-[0.14em] text-white/35">Business</p>
-                                                <p className="mt-2 text-sm font-semibold text-white">{selectedLead.businessName}</p>
-                                                <p className="mt-1 text-sm leading-6 text-white/55">
-                                                    {selectedLead.businessAddress || "No address"}
-                                                </p>
+                                                {isDetailEditing ? (
+                                                    <div className="mt-2 space-y-2">
+                                                        <input
+                                                            className="h-10 w-full rounded-lg border border-white/10 bg-black/20 px-3 text-sm font-semibold text-white outline-none transition placeholder:text-white/30 focus:border-[#842cff] focus:ring-2 focus:ring-[#842cff]/20"
+                                                            value={detailDraft.businessName}
+                                                            onChange={(event) => updateDetailDraft("businessName", event.target.value)}
+                                                            placeholder="Business name"
+                                                        />
+                                                        <textarea
+                                                            className="min-h-20 w-full resize-y rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm font-semibold leading-6 text-white outline-none transition placeholder:text-white/30 focus:border-[#842cff] focus:ring-2 focus:ring-[#842cff]/20"
+                                                            value={detailDraft.businessAddress}
+                                                            onChange={(event) => updateDetailDraft("businessAddress", event.target.value)}
+                                                            placeholder="Business address"
+                                                        />
+                                                    </div>
+                                                ) : (
+                                                    <>
+                                                        <p className="mt-2 text-sm font-semibold text-white">{selectedLead.businessName}</p>
+                                                        <p className="mt-1 text-sm leading-6 text-white/55">
+                                                            {selectedLead.businessAddress || "No address"}
+                                                        </p>
+                                                    </>
+                                                )}
                                             </div>
                                             <div className="space-y-4">
                                                 <div>
                                                     <p className="text-xs font-medium uppercase tracking-[0.14em] text-white/35">Email</p>
-                                                    <p className="mt-2 truncate text-sm font-semibold text-white">
-                                                        {selectedLead.email || "No email"}
-                                                    </p>
+                                                    {isDetailEditing ? (
+                                                        <input
+                                                            className="mt-2 h-10 w-full rounded-lg border border-white/10 bg-black/20 px-3 text-sm font-semibold text-white outline-none transition placeholder:text-white/30 focus:border-[#842cff] focus:ring-2 focus:ring-[#842cff]/20"
+                                                            value={detailDraft.email}
+                                                            onChange={(event) => updateDetailDraft("email", event.target.value)}
+                                                            placeholder="Email"
+                                                        />
+                                                    ) : (
+                                                        <p className="mt-2 truncate text-sm font-semibold text-white">
+                                                            {selectedLead.email || "No email"}
+                                                        </p>
+                                                    )}
                                                 </div>
                                                 <div>
                                                     <p className="text-xs font-medium uppercase tracking-[0.14em] text-white/35">
                                                         Phone Number
                                                     </p>
-                                                    <p className="mt-2 text-sm font-semibold text-white">{selectedLead.phone || "No phone"}</p>
+                                                    {isDetailEditing ? (
+                                                        <input
+                                                            className="mt-2 h-10 w-full rounded-lg border border-white/10 bg-black/20 px-3 text-sm font-semibold text-white outline-none transition placeholder:text-white/30 focus:border-[#842cff] focus:ring-2 focus:ring-[#842cff]/20"
+                                                            value={detailDraft.phone}
+                                                            onChange={(event) => updateDetailDraft("phone", event.target.value)}
+                                                            placeholder="Phone"
+                                                        />
+                                                    ) : (
+                                                        <p className="mt-2 text-sm font-semibold text-white">{selectedLead.phone || "No phone"}</p>
+                                                    )}
                                                 </div>
                                             </div>
                                         </div>
+                                        {isDetailEditing && (
+                                            <div className="mt-4 grid gap-3 border-t border-white/10 pt-4 sm:grid-cols-2">
+                                                <input
+                                                    className="h-10 rounded-lg border border-white/10 bg-black/20 px-3 text-sm font-semibold text-white outline-none transition placeholder:text-white/30 focus:border-[#842cff] focus:ring-2 focus:ring-[#842cff]/20"
+                                                    value={detailDraft.website}
+                                                    onChange={(event) => updateDetailDraft("website", event.target.value)}
+                                                    placeholder="Website"
+                                                />
+                                                <input
+                                                    className="h-10 rounded-lg border border-white/10 bg-black/20 px-3 text-sm font-semibold text-white outline-none transition placeholder:text-white/30 focus:border-[#842cff] focus:ring-2 focus:ring-[#842cff]/20"
+                                                    value={detailDraft.source}
+                                                    onChange={(event) => updateDetailDraft("source", event.target.value)}
+                                                    placeholder="Source"
+                                                />
+                                                <input
+                                                    className="h-10 rounded-lg border border-white/10 bg-black/20 px-3 text-sm font-semibold text-white outline-none transition placeholder:text-white/30 focus:border-[#842cff] focus:ring-2 focus:ring-[#842cff]/20"
+                                                    value={detailDraft.category}
+                                                    onChange={(event) => updateDetailDraft("category", event.target.value)}
+                                                    placeholder="Category"
+                                                />
+                                                <div className="flex justify-end gap-2">
+                                                    <button
+                                                        className="h-10 rounded-lg border border-[#576574] bg-[#576574] px-3 text-sm font-semibold text-white transition hover:border-[#3f4b55] hover:bg-[#3f4b55]"
+                                                        type="button"
+                                                        onClick={cancelDetailEdit}
+                                                        disabled={updateDetailsMutation.isPending}
+                                                    >
+                                                        Cancel
+                                                    </button>
+                                                    <button
+                                                        className="h-10 rounded-lg border border-[#10ac84] bg-[#10ac84] px-3 text-sm font-semibold text-white transition hover:border-[#0b8f6e] hover:bg-[#0b8f6e] disabled:cursor-not-allowed disabled:opacity-80"
+                                                        type="button"
+                                                        onClick={handleSaveDetails}
+                                                        disabled={updateDetailsMutation.isPending || !detailDraft.businessName.trim()}
+                                                    >
+                                                        {updateDetailsMutation.isPending ? "Saving" : "Save"}
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
 
                                     <div className="rounded-lg border border-white/10 bg-white/[0.04] p-4">
-                                        <div className="grid gap-5 md:grid-cols-[12rem_1fr]">
-                                            <div>
+                                        <div className="grid gap-4 2xl:grid-cols-[minmax(12rem,0.75fr)_minmax(0,1.25fr)]">
+                                            <div className="rounded-lg border border-white/10 bg-black/10 p-3">
                                                 <div className="flex items-center justify-between gap-3">
                                                     <p className="text-xs font-medium uppercase tracking-[0.14em] text-white/35">
                                                         Assigned Agent
                                                     </p>
                                                     {!isAssignEditing && (
                                                         <button
-                                                            className="rounded-md border border-white/10 bg-white/[0.06] px-2 py-1 text-xs font-semibold text-white/65 transition hover:bg-white/10 hover:text-white"
+                                                            className="rounded-md border border-[#2e86de] bg-[#2e86de] px-2 py-1 text-xs font-semibold text-white transition hover:border-[#1f6fbf] hover:bg-[#1f6fbf]"
                                                             type="button"
                                                             onClick={() => setIsAssignEditing(true)}
                                                         >
@@ -1012,31 +2907,24 @@ export default function AdminLeads() {
                                                             value={assignmentEmployeeId}
                                                             onChange={(event) => {
                                                                 const employeeId = event.target.value;
-                                                                const employee = activeEmployees.find((item) => item._id === employeeId);
-
                                                                 setAssignmentEmployeeId(employeeId);
-                                                                setAssignmentName(employee?.name || "");
                                                             }}
                                                         >
-                                                            <option value="">Manual / unassigned</option>
-                                                            {activeEmployees.map((employee) => (
+                                                            <option value="" disabled>
+                                                                {salesRepEmployees.length ? "Select Sales Rep" : "No Sales Reps available"}
+                                                            </option>
+                                                            {salesRepEmployees.map((employee) => (
                                                                 <option key={employee._id} value={employee._id}>
                                                                     {employee.name}
                                                                 </option>
                                                             ))}
                                                         </select>
-                                                        <input
-                                                            className="h-10 w-full rounded-lg border border-white/10 bg-black/20 px-3 text-sm font-semibold text-white outline-none transition placeholder:text-white/30 focus:border-[#842cff] focus:ring-2 focus:ring-[#842cff]/20"
-                                                            value={assignmentName}
-                                                            onChange={(event) => {
-                                                                setAssignmentName(event.target.value);
-                                                                setAssignmentEmployeeId("");
-                                                            }}
-                                                            placeholder="Type manual assignee name"
-                                                        />
+                                                        <p className="text-xs font-medium text-white/35">
+                                                            Only active Sales Rep employees can be assigned.
+                                                        </p>
                                                         <div className="flex gap-2">
                                                             <button
-                                                                className="h-9 rounded-lg border border-white/10 bg-white/[0.05] px-3 text-xs font-semibold text-white/60 transition hover:bg-white/10 hover:text-white"
+                                                                className="h-9 rounded-lg border border-[#576574] bg-[#576574] px-3 text-xs font-semibold text-white transition hover:border-[#3f4b55] hover:bg-[#3f4b55]"
                                                                 type="button"
                                                                 onClick={cancelAssignmentEdit}
                                                                 disabled={saveAssignmentMutation.isPending}
@@ -1044,10 +2932,10 @@ export default function AdminLeads() {
                                                                 Cancel
                                                             </button>
                                                             <button
-                                                                className="h-9 rounded-lg border border-[#842cff]/30 bg-[#842cff]/10 px-3 text-xs font-semibold text-[#cbb7ff] transition hover:bg-[#842cff]/20 disabled:cursor-not-allowed disabled:opacity-60"
+                                                                className="h-9 rounded-lg border border-[#10ac84] bg-[#10ac84] px-3 text-xs font-semibold text-white transition hover:border-[#0b8f6e] hover:bg-[#0b8f6e] disabled:cursor-not-allowed disabled:opacity-80"
                                                                 type="button"
                                                                 onClick={handleSaveAssignment}
-                                                                disabled={saveAssignmentMutation.isPending}
+                                                                disabled={saveAssignmentMutation.isPending || !assignmentEmployeeId}
                                                             >
                                                                 {saveAssignmentMutation.isPending ? "Saving" : "Save"}
                                                             </button>
@@ -1056,32 +2944,67 @@ export default function AdminLeads() {
                                                 )}
                                             </div>
 
-                                            <div>
-                                                <p className="text-xs font-medium uppercase tracking-[0.14em] text-white/35">
-                                                    Follow Up
-                                                </p>
-                                                <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_7rem]">
-                                                    <input
-                                                        id="lead-follow-up-input"
-                                                        className="h-12 min-w-0 rounded-lg border border-white/10 bg-black/20 px-3 text-sm font-semibold text-white outline-none transition focus:border-[#842cff] focus:ring-2 focus:ring-[#842cff]/20"
-                                                        type="datetime-local"
-                                                        value={followUpDateTime}
-                                                        onChange={(event) => setFollowUpDateTime(event.target.value)}
-                                                    />
-                                                    <button
-                                                        className="flex h-12 min-w-28 items-center justify-center rounded-lg border border-[#842cff]/30 bg-[#842cff]/10 px-4 text-sm font-semibold text-[#cbb7ff] transition hover:bg-[#842cff]/20 disabled:cursor-not-allowed disabled:opacity-60"
-                                                        type="button"
-                                                        onClick={handleScheduleFollowUp}
-                                                        disabled={!followUpDateTime || scheduleFollowUpMutation.isPending}
-                                                    >
-                                                        {scheduleFollowUpMutation.isPending ? "Saving" : "Schedule"}
-                                                    </button>
+                                            <div className="grid gap-3">
+                                                <div className="rounded-lg border border-white/10 bg-black/10 p-3">
+                                                    <p className="text-xs font-medium uppercase tracking-[0.14em] text-white/35">
+                                                        Lead Status
+                                                    </p>
+                                                    <div className="mt-2 grid gap-2 sm:grid-cols-[minmax(0,1fr)_7rem]">
+                                                        <select
+                                                            className="h-11 w-full min-w-0 rounded-lg border border-white/10 bg-[#0d1018] px-3 text-sm font-semibold text-white outline-none transition focus:border-[#842cff] focus:ring-2 focus:ring-[#842cff]/20"
+                                                            value={statusDraft}
+                                                            onChange={(event) => setStatusDraft(event.target.value as LeadStatus)}
+                                                        >
+                                                            {Array.from(new Set([...editableLeadStatuses, selectedLead.status])).map((status) => (
+                                                                <option key={status} value={status}>
+                                                                    {getEditableLeadStatusLabel(status)}
+                                                                </option>
+                                                            ))}
+                                                        </select>
+                                                        <button
+                                                            className="h-11 rounded-lg border border-[#10ac84] bg-[#10ac84] px-3 text-xs font-semibold text-white transition hover:border-[#0b8f6e] hover:bg-[#0b8f6e] disabled:cursor-not-allowed disabled:opacity-70"
+                                                            type="button"
+                                                            onClick={handleSaveStatus}
+                                                            disabled={updateStatusMutation.isPending || !hasStatusUpdate}
+                                                        >
+                                                            {updateStatusMutation.isPending ? "Saving" : shouldClearQualifiedFollowUp ? "Reset" : "Save"}
+                                                        </button>
+                                                    </div>
                                                 </div>
-                                                <p className="mt-2 text-xs text-white/45">
-                                                    {selectedLead.followUpAt
-                                                        ? `Next: ${new Date(selectedLead.followUpAt).toLocaleString()}`
-                                                        : "No follow-up scheduled"}
-                                                </p>
+
+                                                <div className="rounded-lg border border-white/10 bg-black/10 p-3">
+                                                    <p className="text-xs font-medium uppercase tracking-[0.14em] text-white/35">
+                                                        Follow Up
+                                                    </p>
+                                                    <div className="mt-2 grid gap-2 sm:grid-cols-[minmax(0,1fr)_7rem]">
+                                                        <input
+                                                            id="lead-follow-up-input"
+                                                            className="h-11 min-w-0 rounded-lg border border-white/10 bg-black/20 px-3 text-sm font-semibold text-white outline-none transition focus:border-[#842cff] focus:ring-2 focus:ring-[#842cff]/20"
+                                                            type="datetime-local"
+                                                            value={isQualifiedStatusDraft ? "" : followUpDateTime}
+                                                            min={getCurrentCstDateTimeInput()}
+                                                            onChange={(event) => setFollowUpDateTime(event.target.value)}
+                                                            disabled={isQualifiedStatusDraft}
+                                                        />
+                                                        <button
+                                                            className="admin-follow-up-schedule-button flex h-11 min-w-0 items-center justify-center rounded-lg border border-[#ff9f43] bg-[#ff9f43] px-3 text-sm font-semibold text-white transition hover:border-[#e67f1d] hover:bg-[#e67f1d] disabled:cursor-not-allowed disabled:opacity-80"
+                                                            type="button"
+                                                            onClick={handleScheduleFollowUp}
+                                                            disabled={!followUpDateTime || scheduleFollowUpMutation.isPending || isQualifiedStatusDraft}
+                                                        >
+                                                            {scheduleFollowUpMutation.isPending ? "Saving" : "Schedule"}
+                                                        </button>
+                                                    </div>
+                                                    <p className="mt-2 text-xs text-white/45">
+                                                        {isQualifiedStatusDraft
+                                                            ? shouldClearQualifiedFollowUp
+                                                                ? "Save to clear the existing follow-up schedule."
+                                                                : "Qualified leads have no follow-up schedule."
+                                                            : selectedLead.followUpAt
+                                                                ? `Next: ${formatCstDateTime(selectedLead.followUpAt)}`
+                                                                : "No follow-up scheduled"}
+                                                    </p>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
@@ -1092,60 +3015,59 @@ export default function AdminLeads() {
                                                 <p className="text-xs font-medium uppercase tracking-[0.14em] text-white/35">Comments</p>
                                                 <p className="mt-1 text-xs text-white/45">Internal lead notes</p>
                                             </div>
-                                            {isCommentEditing ? (
-                                                <div className="flex items-center gap-2">
-                                                    <button
-                                                        className="flex h-9 items-center gap-2 rounded-lg border border-white/10 bg-white/[0.06] px-3 text-xs font-semibold text-white/70 transition hover:bg-white/10 hover:text-white"
-                                                        type="button"
-                                                        onClick={cancelCommentEdit}
-                                                        disabled={saveCommentMutation.isPending}
-                                                    >
-                                                        Cancel
-                                                    </button>
-                                                    <button
-                                                        className="flex h-9 items-center gap-2 rounded-lg border border-white/10 bg-white/[0.06] px-3 text-xs font-semibold text-white/70 transition hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
-                                                        type="button"
-                                                        onClick={handleSaveComment}
-                                                        disabled={!selectedLead || saveCommentMutation.isPending}
-                                                    >
-                                                        <FiSave className="size-3.5" aria-hidden="true" />
-                                                        {saveCommentMutation.isPending ? "Saving" : "Save"}
-                                                    </button>
+                                        </div>
+                                        <div className="mt-3 grid gap-3">
+                                            {selectedLead.notes && (
+                                                <div className="rounded-lg border border-white/10 bg-black/20 p-3">
+                                                    <p className="text-xs font-semibold uppercase tracking-[0.12em] text-white/35">Original notes</p>
+                                                    <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-white/70">{selectedLead.notes}</p>
                                                 </div>
-                                            ) : (
-                                                <button
-                                                    className="flex h-9 items-center gap-2 rounded-lg border border-white/10 bg-white/[0.06] px-3 text-xs font-semibold text-white/70 transition hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
-                                                    type="button"
-                                                    onClick={() => setIsCommentEditing(true)}
-                                                    disabled={!selectedLead}
-                                                >
-                                                    <FiEdit2 className="size-3.5" aria-hidden="true" />
-                                                    Edit
-                                                </button>
+                                            )}
+                                            {(selectedLead.comments || []).map((comment) => (
+                                                <article key={comment._id || `${comment.createdAt}-${comment.body}`} className="rounded-lg border border-white/10 bg-black/20 p-3">
+                                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                                        <p className="text-sm font-semibold text-white">{comment.authorName || "Admin"}</p>
+                                                        <p className="text-xs text-white/35">
+                                                            {comment.createdAt ? formatPhDateTime(comment.createdAt) : ""}
+                                                        </p>
+                                                    </div>
+                                                    <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-white/65">{comment.body}</p>
+                                                </article>
+                                            ))}
+                                            {!selectedLead.notes && (selectedLead.comments || []).length === 0 && (
+                                                <p className="text-sm text-white/45">No comments yet.</p>
                                             )}
                                         </div>
                                         <textarea
-                                            className={[
-                                                "mt-3 min-h-28 w-full rounded-lg border border-white/10 bg-black/20 p-3 text-sm leading-6 text-white outline-none transition placeholder:text-white/30",
-                                                isCommentEditing
-                                                    ? "resize-y focus:border-[#842cff] focus:ring-2 focus:ring-[#842cff]/20"
-                                                    : "resize-none cursor-default text-white/85",
-                                            ].join(" ")}
+                                            className="mt-4 min-h-24 w-full resize-y rounded-lg border border-white/10 bg-black/20 p-3 text-sm leading-6 text-white outline-none transition placeholder:text-white/30 focus:border-[#842cff] focus:ring-2 focus:ring-[#842cff]/20"
                                             value={commentDraft}
                                             onChange={(event) => setCommentDraft(event.target.value)}
-                                            readOnly={!isCommentEditing}
-                                            placeholder="Add comments, objections, call notes, or next-step context..."
+                                            placeholder="Add a new comment..."
                                         />
+                                        <div className="mt-3 flex justify-end">
+                                            <button
+                                                className="flex h-9 items-center gap-2 rounded-lg border border-[#2e86de] bg-[#2e86de] px-3 text-xs font-semibold text-white transition hover:border-[#1f6fbf] hover:bg-[#1f6fbf] disabled:cursor-not-allowed disabled:opacity-80"
+                                                type="button"
+                                                onClick={handleSaveComment}
+                                                disabled={!selectedLead || addCommentMutation.isPending || !commentDraft.trim()}
+                                            >
+                                                <FiSave className="size-3.5" aria-hidden="true" />
+                                                {addCommentMutation.isPending ? "Saving" : "Add Comment"}
+                                            </button>
+                                        </div>
                                     </div>
 
                                     <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
                                         {[
                                             ["Lead Source", selectedLead.source],
+                                            ["Created By", selectedLead.createdByName || "System"],
                                             ["Filter", selectedLead.category || "All"],
                                             ["AI Score", selectedLead.aiScore ? `${selectedLead.aiScore}/100` : "Not scored"],
                                             ["AI Reason", selectedLead.aiScoreReason || "No score yet"],
-                                            ["Follow Up", selectedLead.followUpAt ? new Date(selectedLead.followUpAt).toLocaleString() : "None"],
+                                            ["Follow Up", selectedLead.status !== "Qualified" && selectedLead.followUpAt ? formatCstDateTime(selectedLead.followUpAt) : "None"],
                                             ["Status", selectedLead.status],
+                                            ["Current Agent", getCurrentLeadAgent(selectedLead)],
+                                            ["Previous Agent", getPreviousLeadAgent(selectedLead)],
                                             ["Team", selectedLead.assignedTeam?.name || "Unassigned"],
                                             ["Website", selectedLead.website || "No website"],
                                             ["Place ID", selectedLead.googlePlaceId || "Manual"],
@@ -1162,32 +3084,44 @@ export default function AdminLeads() {
                                 </div>
 
                                 <aside className="flex min-h-0">
-                                    <div className="flex max-h-full min-h-[24rem] w-full flex-col rounded-lg border border-white/10 bg-white/[0.04] p-4 xl:sticky xl:top-0">
-                                        <p className="text-xs font-medium uppercase tracking-[0.14em] text-white/35">Activity</p>
+                                    <div className="flex max-h-full min-h-[24rem] w-full flex-col rounded-lg border border-slate-300 bg-white/75 p-4 xl:sticky xl:top-0">
+                                        <p className="text-xs font-medium uppercase tracking-[0.14em] !text-slate-600">Activity</p>
                                         <div className="mt-4 flex-1 space-y-5 overflow-y-auto pr-1">
-                                            {leadActivity.map((item) => (
-                                                <div key={item.label} className="flex gap-3">
+                                            {leadActivity.map((item, index) => (
+                                                <div key={`${item.label}-${item.createdAt || index}`} className="flex gap-3">
                                                     <span
                                                         className={[
                                                             "mt-1 size-2 shrink-0 rounded-full",
                                                             item.status === "Current"
                                                                 ? "bg-[#842cff]"
                                                                 : item.status === "Priority" || item.status === "High"
-                                                                  ? "bg-[#fbbf24]"
-                                                                  : "bg-white/25",
+                                                                    ? "bg-[#fbbf24]"
+                                                                    : "bg-slate-400",
                                                         ].join(" ")}
                                                     />
                                                     <div className="min-w-0 flex-1">
                                                         <div className="flex flex-wrap items-center gap-2">
-                                                            <p className="text-sm font-semibold text-white/80">{item.label}</p>
-                                                            <span className="rounded bg-white/[0.06] px-1.5 py-0.5 text-[0.65rem] font-semibold uppercase tracking-[0.12em] text-white/40">
+                                                            <p className="text-sm font-semibold !text-slate-950">{item.label}</p>
+                                                            <span className="rounded bg-slate-200 px-1.5 py-0.5 text-[0.65rem] font-semibold uppercase tracking-[0.12em] !text-slate-700">
                                                                 {item.status}
                                                             </span>
                                                         </div>
-                                                        <p className="mt-1 text-xs leading-5 text-white/45">{item.detail}</p>
+                                                        <p className="mt-1 whitespace-pre-line text-xs font-medium leading-5 !text-slate-700">{item.detail}</p>
+                                                        {item.createdAt && (
+                                                            <p className="mt-1 text-[0.68rem] font-semibold uppercase tracking-[0.1em] !text-slate-500">
+                                                                {formatPhDateTime(item.createdAt)}
+                                                            </p>
+                                                        )}
                                                         {item.action && (
                                                             <button
-                                                                className="mt-2 h-8 rounded-lg border border-white/10 bg-white/[0.05] px-3 text-xs font-semibold text-white/65 transition hover:bg-white/[0.09] hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                                                                className={[
+                                                                    "mt-2 h-8 rounded-lg border px-3 text-xs font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-80",
+                                                                    item.action === "assign"
+                                                                        ? "border-[#10ac84] bg-[#10ac84] hover:border-[#0b8f6e] hover:bg-[#0b8f6e]"
+                                                                        : item.action === "score"
+                                                                            ? "border-[#00d2d3] bg-[#00d2d3] hover:border-[#01a3a4] hover:bg-[#01a3a4]"
+                                                                            : "border-[#ff9f43] bg-[#ff9f43] hover:border-[#e67f1d] hover:bg-[#e67f1d]",
+                                                                ].join(" ")}
                                                                 type="button"
                                                                 onClick={() => handleActivityAction(item.action)}
                                                                 disabled={
@@ -1200,10 +3134,10 @@ export default function AdminLeads() {
                                                                         ? "Assigning"
                                                                         : "Auto assign"
                                                                     : item.action === "score"
-                                                                      ? scoreLeadsMutation.isPending
-                                                                          ? "Scoring"
-                                                                          : "Rescore"
-                                                                      : "Schedule follow-up"}
+                                                                        ? scoreLeadsMutation.isPending
+                                                                            ? "Scoring"
+                                                                            : "Rescore"
+                                                                        : "Schedule follow-up"}
                                                             </button>
                                                         )}
                                                     </div>
@@ -1221,7 +3155,14 @@ export default function AdminLeads() {
             </section>
 
             {isPlacesOpen && (
-                <div className="modal-backdrop-enter fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm">
+                <div
+                    className="modal-backdrop-enter fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm"
+                    onMouseDown={(event) => {
+                        if (event.target === event.currentTarget) {
+                            setIsPlacesOpen(false);
+                        }
+                    }}
+                >
                     <section className="modal-panel-enter flex max-h-[88vh] w-full max-w-[50rem] flex-col rounded-lg border border-white/10 bg-[#0d1018] shadow-2xl shadow-black/40">
                         <div className="flex items-center justify-between border-b border-white/10 px-5 py-3.5">
                             <div>
@@ -1285,7 +3226,7 @@ export default function AdminLeads() {
                                 </button>
                             </div>
 
-                            <div className="grid gap-3 sm:grid-cols-2">
+                            <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,0.75fr)_8rem]">
                                 <label>
                                     <span className="text-xs font-medium uppercase tracking-[0.14em] text-white/35">City</span>
                                     <input
@@ -1304,22 +3245,39 @@ export default function AdminLeads() {
                                         placeholder="TX"
                                     />
                                 </label>
+                                <label>
+                                    <span className="text-xs font-medium uppercase tracking-[0.14em] text-white/35">Radius</span>
+                                    <div className="mt-2 flex h-10 rounded-lg border border-white/10 bg-black/20 focus-within:border-[#842cff] focus-within:ring-2 focus-within:ring-[#842cff]/20">
+                                        <input
+                                            className="min-w-0 flex-1 bg-transparent px-3 text-sm font-semibold text-white outline-none placeholder:text-white/30"
+                                            type="number"
+                                            min="1"
+                                            max="50"
+                                            step="1"
+                                            value={placesRadiusMiles}
+                                            onChange={(event) => setPlacesRadiusMiles(event.target.value)}
+                                            placeholder="50"
+                                        />
+                                        <span className="flex items-center border-l border-white/10 px-3 text-xs font-semibold text-white/40">mi</span>
+                                    </div>
+                                    <p className="mt-1 text-[0.68rem] text-white/35">Max 50 mi</p>
+                                </label>
                             </div>
                         </form>
 
-                        <div className="content-scroll overflow-y-auto p-4">
+                        <div className="content-scroll overflow-y-auto overflow-x-hidden p-4">
                             {(searchAndImportPlacesMutation.isError || autoSearchPlacesMutation.isError) && (
                                 <p className="text-sm text-red-200">
                                     Google Places search failed. Check `GOOGLE_PLACES_API_KEY` in `backend/.env`.
                                 </p>
                             )}
-                            {autoSearchQueries.length > 0 && (
+                            {autoSearchLocations.length > 0 && (
                                 <div className="mb-3 rounded-lg border border-white/10 bg-white/[0.035] p-3">
-                                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-white/35">Auto searched</p>
+                                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-white/35">Nearby areas searched</p>
                                     <div className="mt-2 flex flex-wrap gap-2">
-                                        {autoSearchQueries.map((query) => (
-                                            <span key={query} className="rounded-md bg-[#842cff]/15 px-2 py-1 text-xs font-semibold text-[#d8c8ff]">
-                                                {query}
+                                        {autoSearchLocations.map((location) => (
+                                            <span key={location} className="rounded-md bg-[#10ac84]/15 px-2 py-1 text-xs font-semibold !text-black">
+                                                {location}
                                             </span>
                                         ))}
                                     </div>
@@ -1336,12 +3294,12 @@ export default function AdminLeads() {
                                         key={place.googlePlaceId || place.businessName}
                                         className="rounded-lg border border-white/10 bg-white/[0.04] p-4"
                                     >
-                                        <div className="flex items-start justify-between gap-3">
+                                        <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
                                             <div className="min-w-0">
                                                 <h4 className="truncate text-sm font-semibold text-white">{place.businessName}</h4>
                                                 <p className="mt-1 text-xs leading-5 text-white/45">{place.businessAddress || "No address"}</p>
                                             </div>
-                                            <span className="flex h-9 shrink-0 items-center gap-2 rounded-lg border border-[#4ade80]/20 bg-[#4ade80]/10 px-3 text-xs font-semibold text-[#9df6b7]">
+                                            <span className="flex h-9 shrink-0 items-center justify-center gap-2 rounded-lg border border-[#10ac84] bg-[#10ac84] px-3 text-xs font-semibold text-white shadow-sm shadow-[#10ac84]/20">
                                                 <FiPlus className="size-3.5" aria-hidden="true" />
                                                 Saved
                                             </span>
@@ -1375,10 +3333,18 @@ export default function AdminLeads() {
             )}
 
             {isLeadModalOpen && (
-                <div className="modal-backdrop-enter fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm">
+                <div
+                    className="modal-backdrop-enter fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm"
+                    onMouseDown={(event) => {
+                        if (event.target === event.currentTarget) {
+                            closeLeadModal();
+                        }
+                    }}
+                >
                     <form
                         className="modal-panel-enter flex max-h-[88vh] w-full max-w-[34rem] flex-col rounded-lg border border-white/10 bg-[#0d1018] shadow-2xl shadow-black/40"
                         onSubmit={handleSaveLead}
+                        onMouseDown={(event) => event.stopPropagation()}
                     >
                         <div className="flex items-center justify-between border-b border-white/10 px-5 py-3.5">
                             <div>
@@ -1434,8 +3400,8 @@ export default function AdminLeads() {
                                             className={[
                                                 "h-10 rounded-lg border px-3 text-xs font-semibold transition",
                                                 leadForm.status === status
-                                                    ? "border-[#842cff] bg-[#842cff]/20 text-white"
-                                                    : "border-white/10 bg-black/20 text-white/55 hover:bg-white/[0.06] hover:text-white",
+                                                    ? "border-[#842cff] bg-[#842cff]/20 text-black"
+                                                    : "border-white/10 bg-black/20 text-black hover:bg-white/[0.06] hover:text-black",
                                             ].join(" ")}
                                             type="button"
                                             onClick={() => setLeadForm((lead) => ({ ...lead, status }))}
@@ -1452,15 +3418,17 @@ export default function AdminLeads() {
                                 className="h-10 rounded-lg border border-white/10 bg-white/[0.06] px-4 text-sm font-semibold text-white/70 transition hover:bg-white/10 hover:text-white"
                                 type="button"
                                 onClick={closeLeadModal}
+                                disabled={createLeadMutation.isPending}
                             >
                                 Cancel
                             </button>
                             <button
-                                className="flex h-10 items-center gap-2 rounded-lg bg-[linear-gradient(135deg,#842cff,#4a0ebd)] px-4 text-sm font-semibold text-white transition hover:brightness-110"
+                                className="flex h-10 items-center gap-2 rounded-lg bg-[linear-gradient(135deg,#842cff,#4a0ebd)] px-4 text-sm font-semibold text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-70"
                                 type="submit"
+                                disabled={createLeadMutation.isPending}
                             >
                                 <FiPlus className="size-4" aria-hidden="true" />
-                                Add Lead
+                                {createLeadMutation.isPending ? "Adding..." : "Add Lead"}
                             </button>
                         </div>
                     </form>
@@ -1468,7 +3436,14 @@ export default function AdminLeads() {
             )}
 
             {deleteTarget && (
-                <div className="modal-backdrop-enter fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm">
+                <div
+                    className="modal-backdrop-enter fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm"
+                    onMouseDown={(event) => {
+                        if (event.target === event.currentTarget) {
+                            closeDeletePrompt();
+                        }
+                    }}
+                >
                     <div className="modal-panel-enter w-full max-w-[32rem] overflow-hidden rounded-lg border border-red-400/20 bg-[#0d1018] shadow-2xl shadow-red-950/30">
                         <div className="bg-[radial-gradient(circle_at_15%_20%,rgba(239,68,68,0.22),transparent_35%),linear-gradient(135deg,rgba(239,68,68,0.12),rgba(132,44,255,0.08))] px-5 py-4">
                             <div className="flex items-start justify-between gap-4">
@@ -1477,23 +3452,22 @@ export default function AdminLeads() {
                                         <FiAlertTriangle className="size-5" aria-hidden="true" />
                                     </span>
                                     <div>
-                                        <p className="text-xs font-medium uppercase tracking-[0.14em] text-red-100/55">Archive Lead</p>
+                                        <p className="text-xs font-medium uppercase tracking-[0.14em] text-red-100/55">
+                                            {deleteTarget.status === "Archived" ? "Delete Lead" : "Archive Lead"}
+                                        </p>
                                         <h3 className="mt-1 text-lg font-semibold text-white">
-                                            {deleteStep === 1 ? "Are you sure you want to delete?" : "You are deleting this lead"}
+                                            Are you sure?
                                         </h3>
                                         <p className="mt-1 text-sm text-red-50/60">
-                                            {deleteStep === 1 ? "This will remove it from active lead records." : "Final confirmation required before this lead is archived."}
+                                            {deleteTarget.status === "Archived"
+                                                ? "This will permanently delete this archived lead."
+                                                : "This will move the lead to the Archived tab."}
                                         </p>
                                     </div>
                                 </div>
                                 <button className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-black/20 text-white/60 transition hover:bg-white/10 hover:text-white" type="button" onClick={closeDeletePrompt} aria-label="Close delete confirmation">
                                     <FiX className="size-4" aria-hidden="true" />
                                 </button>
-                            </div>
-                            <div className="mt-4 grid grid-cols-2 gap-2">
-                                {[1, 2].map((step) => (
-                                    <div key={step} className={["h-1.5 rounded-full transition", deleteStep >= step ? "bg-red-400" : "bg-white/10"].join(" ")} />
-                                ))}
                             </div>
                         </div>
                         <div className="p-5">
@@ -1504,17 +3478,95 @@ export default function AdminLeads() {
                             </div>
                             <div className="mt-3 rounded-lg border border-yellow-300/20 bg-yellow-300/10 p-3">
                                 <p className="text-sm leading-6 text-yellow-50/75">
-                                    {deleteStep === 1 ? "Review this lead before continuing. You will be asked one more time." : `You are deleting ${deleteTarget.leadName || deleteTarget.businessName}.`}
+                                    Are you sure you want to {deleteTarget.status === "Archived" ? "permanently delete" : "archive"} {deleteTarget.leadName || deleteTarget.businessName}?
                                 </p>
                             </div>
                         </div>
                         <div className="flex justify-end gap-2 border-t border-white/10 px-5 py-3">
                             <button className="h-10 rounded-lg border border-white/10 bg-white/[0.05] px-4 text-sm font-semibold text-white/60 transition hover:bg-white/10 hover:text-white" type="button" onClick={closeDeletePrompt}>Cancel</button>
-                            {deleteStep === 1 ? (
-                                <button className="h-10 rounded-lg border border-red-400/20 bg-red-400/10 px-4 text-sm font-semibold text-red-100/80 transition hover:bg-red-400/15 hover:text-red-100" type="button" onClick={() => setDeleteStep(2)}>Continue</button>
-                            ) : (
-                                <button className="h-10 rounded-lg bg-red-500 px-4 text-sm font-semibold text-white transition hover:bg-red-400 disabled:opacity-60" type="button" onClick={confirmDelete} disabled={archiveLeadMutation.isPending}>Delete Lead</button>
-                            )}
+                            <button
+                                className="h-10 rounded-lg bg-red-500 px-4 text-sm font-semibold text-white transition hover:bg-red-400 disabled:opacity-60"
+                                type="button"
+                                onClick={confirmDelete}
+                                disabled={archiveLeadMutation.isPending || permanentlyDeleteLeadMutation.isPending}
+                            >
+                                {deleteTarget.status === "Archived" ? "Delete Permanently" : "Archive Lead"}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {bulkAction && (
+                <div
+                    className="modal-backdrop-enter fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm"
+                    onMouseDown={(event) => {
+                        if (event.target === event.currentTarget) {
+                            closeBulkPrompt();
+                        }
+                    }}
+                >
+                    <div className="modal-panel-enter w-full max-w-[32rem] overflow-hidden rounded-lg border border-red-400/20 bg-[#0d1018] shadow-2xl shadow-red-950/30">
+                        <div className="bg-[radial-gradient(circle_at_15%_20%,rgba(239,68,68,0.22),transparent_35%),linear-gradient(135deg,rgba(239,68,68,0.12),rgba(132,44,255,0.08))] px-5 py-4">
+                            <div className="flex items-start justify-between gap-4">
+                                <div className="flex items-start gap-3">
+                                    <span className="flex size-11 shrink-0 items-center justify-center rounded-lg border border-red-300/20 bg-red-500/15 text-red-100">
+                                        <FiAlertTriangle className="size-5" aria-hidden="true" />
+                                    </span>
+                                    <div>
+                                        <p className="text-xs font-medium uppercase tracking-[0.14em] text-red-100/55">Bulk Leads</p>
+                                        <h3 className="mt-1 text-lg font-semibold text-white">Are you sure?</h3>
+                                        <p className="mt-1 text-sm text-red-50/60">
+                                            {bulkAction === "archive" && `This will move ${selectedBulkCount} selected lead${selectedBulkCount === 1 ? "" : "s"} to Archive.`}
+                                            {bulkAction === "archive-all" && "This will move every non-archived lead in the database to Archive."}
+                                            {bulkAction === "delete-active-selected" && `This will permanently delete ${selectedBulkCount} selected lead${selectedBulkCount === 1 ? "" : "s"}. This cannot be undone.`}
+                                            {bulkAction === "restore" && `This will restore ${selectedBulkCount} selected archived lead${selectedBulkCount === 1 ? "" : "s"} to NEW.`}
+                                            {bulkAction === "delete-selected" && `This will permanently delete ${selectedBulkCount} selected archived lead${selectedBulkCount === 1 ? "" : "s"}.`}
+                                            {bulkAction === "restore-all" && `This will restore all ${archivedLeadCount} archived lead${archivedLeadCount === 1 ? "" : "s"} to NEW.`}
+                                            {bulkAction === "delete-all" && `This will permanently delete all ${archivedLeadCount} archived lead${archivedLeadCount === 1 ? "" : "s"}.`}
+                                        </p>
+                                    </div>
+                                </div>
+                                <button className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-black/20 text-white/60 transition hover:bg-white/10 hover:text-white" type="button" onClick={closeBulkPrompt} aria-label="Close bulk confirmation">
+                                    <FiX className="size-4" aria-hidden="true" />
+                                </button>
+                            </div>
+                        </div>
+                        <div className="p-5">
+                            <div className="rounded-lg border border-white/10 bg-white/[0.035] p-4">
+                                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-white/35">Selected Action</p>
+                                <p className="mt-2 text-sm font-semibold text-white">
+                                    {bulkAction === "archive" && "Archive selected leads"}
+                                    {bulkAction === "archive-all" && "Archive all non-archived leads"}
+                                    {bulkAction === "delete-active-selected" && "Permanently delete selected leads"}
+                                    {bulkAction === "restore" && "Restore selected leads"}
+                                    {bulkAction === "delete-selected" && "Permanently delete selected archived leads"}
+                                    {bulkAction === "restore-all" && "Restore all archived leads"}
+                                    {bulkAction === "delete-all" && "Permanently delete all archived leads"}
+                                </p>
+                            </div>
+                            <div className="mt-3 rounded-lg border border-yellow-300/20 bg-yellow-300/10 p-3">
+                                <p className="text-sm leading-6 text-yellow-50/75">Are you sure?</p>
+                            </div>
+                        </div>
+                        <div className="flex justify-end gap-2 border-t border-white/10 px-5 py-3">
+                            <button className="h-10 rounded-lg border border-white/10 bg-white/[0.05] px-4 text-sm font-semibold text-white/60 transition hover:bg-white/10 hover:text-white" type="button" onClick={closeBulkPrompt}>Cancel</button>
+                            <button
+                                className="h-10 rounded-lg bg-red-500 px-4 text-sm font-semibold text-white transition hover:bg-red-400 disabled:opacity-60"
+                                type="button"
+                                onClick={confirmBulkAction}
+                                disabled={
+                                    bulkArchiveLeadsMutation.isPending ||
+                                    archiveAllActiveLeadsMutation.isPending ||
+                                    bulkPermanentDeleteActiveMutation.isPending ||
+                                    bulkRestoreLeadsMutation.isPending ||
+                                    bulkPermanentDeleteMutation.isPending ||
+                                    restoreAllArchivedLeadsMutation.isPending ||
+                                    permanentlyDeleteAllArchivedLeadsMutation.isPending
+                                }
+                            >
+                                Confirm
+                            </button>
                         </div>
                     </div>
                 </div>

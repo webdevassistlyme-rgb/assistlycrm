@@ -1,4 +1,5 @@
-import { Schema, model } from "mongoose";
+import { Schema } from "mongoose";
+import { tenantModel } from "../config/tenancy";
 
 export type ToolDocument = {
   name: string;
@@ -17,4 +18,4 @@ const toolSchema = new Schema<ToolDocument>(
   { timestamps: true }
 );
 
-export const Tool = model<ToolDocument>("Tool", toolSchema);
+export const Tool = tenantModel<ToolDocument>("Tool", toolSchema);

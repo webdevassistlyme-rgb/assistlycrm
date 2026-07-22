@@ -1,9 +1,12 @@
-import { Schema, model, Types } from "mongoose";
+import { Schema, Types } from "mongoose";
+import { tenantModel } from "../config/tenancy";
 
 export type TeamStatus = "Active" | "Review" | "Paused" | "Archived";
 
 export type TeamDocument = {
   name: string;
+  company: string;
+  department: string;
   lead: Types.ObjectId | null;
   members: Types.ObjectId[];
   activeLeads: number;
@@ -13,6 +16,8 @@ export type TeamDocument = {
 const teamSchema = new Schema<TeamDocument>(
   {
     name: { type: String, required: true, unique: true, trim: true },
+    company: { type: String, trim: true, default: "All companies" },
+    department: { type: String, trim: true, default: "General" },
     lead: { type: Schema.Types.ObjectId, ref: "Employee", default: null },
     members: [{ type: Schema.Types.ObjectId, ref: "Employee" }],
     activeLeads: { type: Number, default: 0, min: 0 },
@@ -25,4 +30,4 @@ const teamSchema = new Schema<TeamDocument>(
   { timestamps: true }
 );
 
-export const Team = model<TeamDocument>("Team", teamSchema);
+export const Team = tenantModel<TeamDocument>("Team", teamSchema);

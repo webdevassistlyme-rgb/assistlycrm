@@ -10,7 +10,7 @@ async function ensureDefaultRoles() {
     return;
   }
 
-  await Role.insertMany(defaultRoles.map((name) => ({ name })));
+  await Role.insertMany(defaultRoles.map((name) => ({ name, department: "Operations", branch: "All branches" })));
 }
 
 export async function listRoles(_request: Request, response: Response) {
@@ -22,6 +22,8 @@ export async function listRoles(_request: Request, response: Response) {
 export async function createRole(request: Request, response: Response) {
   const role = await Role.create({
     name: request.body.name,
+    department: request.body.department || "General",
+    branch: request.body.branch || "All branches",
     description: request.body.description || "",
   });
 
@@ -33,9 +35,11 @@ export async function updateRole(request: Request, response: Response) {
     request.params.id,
     {
       name: request.body.name,
+      department: request.body.department || "General",
+      branch: request.body.branch || "All branches",
       description: request.body.description || "",
     },
-    { new: true, runValidators: true }
+    { returnDocument: "after", runValidators: true }
   );
 
   if (!role) {
@@ -50,7 +54,7 @@ export async function archiveRole(request: Request, response: Response) {
   const role = await Role.findByIdAndUpdate(
     request.params.id,
     { isArchived: true },
-    { new: true, runValidators: true }
+    { returnDocument: "after", runValidators: true }
   );
 
   if (!role) {

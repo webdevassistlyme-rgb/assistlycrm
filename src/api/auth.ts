@@ -1,34 +1,25 @@
 import { api } from "../lib/api";
-import type { Employee } from "./employees";
+import type { AuthUser } from "./authStorage";
 
-export type AuthUser =
-    | { userType: "admin"; user: { id: string; name: string; role: string; employeeCode: string } }
-    | { userType: "employee"; user: Employee };
-
-export async function loginWithEmployeeCode(employeeCode: string) {
-    const response = await api.post<AuthUser>("/auth/login", { employeeCode });
+export async function loginWithEmployeeCode(employeeCode: string, businessId?: string) {
+    const response = await api.post<AuthUser>(
+        "/auth/login",
+        { employeeCode },
+        businessId ? { headers: { "X-Business-Id": businessId } } : undefined
+    );
     return response.data;
 }
 
-export function getAuthUser() {
-    const rawUser = localStorage.getItem("authUser");
-
-    if (!rawUser) {
-        return null;
-    }
-
-    try {
-        return JSON.parse(rawUser) as AuthUser;
-    } catch {
-        localStorage.removeItem("authUser");
-        return null;
-    }
+export async function logoutEmployee(employeeId: string) {
+    const response = await api.post<{ success: boolean }>("/auth/logout", { employeeId });
+    return response.data;
 }
 
-export function setAuthUser(user: AuthUser) {
-    localStorage.setItem("authUser", JSON.stringify(user));
-}
-
-export function clearAuthUser() {
-    localStorage.removeItem("authUser");
+export async function switchEmployeeBusiness(employeeCode: string, currentBusinessId: string, targetBusinessId: string) {
+    const response = await api.post<AuthUser>(
+        "/auth/switch-business",
+        { employeeCode, currentBusinessId, targetBusinessId },
+        { headers: { "X-Business-Id": targetBusinessId } }
+    );
+    return response.data;
 }

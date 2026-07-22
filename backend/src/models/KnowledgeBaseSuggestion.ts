@@ -1,4 +1,5 @@
-import { Schema, model, Types } from "mongoose";
+import { Schema, Types } from "mongoose";
+import { tenantModel } from "../config/tenancy";
 import type { KnowledgeBaseEntryType } from "./KnowledgeBaseEntry";
 
 export type KnowledgeBaseSuggestionStatus = "Pending" | "Approved" | "Rejected";
@@ -22,7 +23,7 @@ export type KnowledgeBaseSuggestionDocument = {
 const knowledgeBaseSuggestionSchema = new Schema<KnowledgeBaseSuggestionDocument>(
   {
     entry: { type: Schema.Types.ObjectId, ref: "KnowledgeBaseEntry", required: true },
-    entryType: { type: String, enum: ["Product", "FAQ"], required: true },
+    entryType: { type: String, enum: ["Product", "FAQ", "Article"], required: true },
     comment: { type: String, trim: true, default: "" },
     title: { type: String, trim: true, default: "" },
     category: { type: String, trim: true, default: "" },
@@ -38,7 +39,7 @@ const knowledgeBaseSuggestionSchema = new Schema<KnowledgeBaseSuggestionDocument
   { timestamps: true }
 );
 
-export const KnowledgeBaseSuggestion = model<KnowledgeBaseSuggestionDocument>(
+export const KnowledgeBaseSuggestion = tenantModel<KnowledgeBaseSuggestionDocument>(
   "KnowledgeBaseSuggestion",
   knowledgeBaseSuggestionSchema
 );

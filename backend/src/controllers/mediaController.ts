@@ -1,17 +1,73 @@
 import type { Request, Response } from "express";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { MediaAsset } from "../models/MediaAsset";
+import { MediaAsset, type MediaAssetType } from "../models/MediaAsset";
+
+const mediaUploadRoot = path.resolve(process.cwd(), "uploads", "media");
+const maxStoredMediaBytes = 12 * 1024 * 1024;
+
+function toText(value: unknown, fallback = "") {
+  const text = String(value || "").trim();
+  return text || fallback;
+}
+
+function toAssetType(value: unknown, mimeType = ""): MediaAssetType {
+  const type = toText(value);
+
+  if (type === "Image" || type === "Video") {
+    return type;
+  }
+
+  return mimeType.startsWith("video/") ? "Video" : "Image";
+}
+
+function toSize(value: unknown) {
+  const size = Number(value);
+  return Number.isFinite(size) && size > 0 ? Math.round(size) : 0;
+}
+
+function mediaFileUrl(fileName: string) {
+  return `/api/media/file/${fileName}`;
+}
+
+function isSafeMediaFileName(value: string) {
+  return /^[a-z0-9_.-]+$/i.test(value) && !value.includes("..");
+}
+
+function mediaUploadCandidates() {
+  return Array.from(
+    new Set([
+      mediaUploadRoot,
+      path.resolve(process.cwd(), "backend", "uploads", "media"),
+      path.resolve(process.cwd(), "..", "uploads", "media"),
+    ])
+  ).filter((candidate) => path.basename(candidate) === "media");
+}
 
 export async function listMediaAssets(_request: Request, response: Response) {
-  const assets = await MediaAsset.find({ isArchived: false }).sort({ createdAt: -1 });
-  response.json(assets);
+  const assets = await MediaAsset.find({ isArchived: false }).sort({ createdAt: -1 }).lean();
+  response.json(
+    assets.map((asset) => {
+      const mimeType = toText(asset.mimeType, "application/octet-stream");
+
+      return {
+        ...asset,
+        name: toText(asset.name, "Media asset"),
+        url: toText(asset.url),
+        mimeType,
+        assetType: toAssetType(asset.assetType, mimeType),
+        branch: toText(asset.branch, "All branches"),
+        size: toSize(asset.size),
+        isArchived: Boolean(asset.isArchived),
+      };
+    })
+  );
 }
 
 export async function uploadMediaAsset(request: Request, response: Response) {
   const dataUrl = String(request.body.dataUrl || "");
   const originalName = String(request.body.fileName || "media").replace(/[^a-zA-Z0-9._-]/g, "-");
-  const branch = String(request.body.branch || "").trim();
+  const branch = toText(request.body.branch);
   const match = dataUrl.match(/^data:(image\/(?:png|jpe?g|webp|gif)|video\/(?:mp4|webm|ogg|quicktime));base64,(.+)$/);
 
   if (!branch) {
@@ -38,7 +94,7 @@ export async function uploadMediaAsset(request: Request, response: Response) {
     "video/ogg": "ogg",
     "video/quicktime": "mov",
   };
-  const uploadDir = path.resolve("uploads", "media");
+  const uploadDir = mediaUploadRoot;
   const fileName = `${Date.now()}-${Math.random().toString(16).slice(2)}-${originalName}.${extensionByMime[mimeType] || "bin"}`;
   const bytes = Buffer.from(base64, "base64");
 
@@ -47,21 +103,68 @@ export async function uploadMediaAsset(request: Request, response: Response) {
 
   const asset = await MediaAsset.create({
     name: originalName,
-    url: `/uploads/media/${fileName}`,
+    url: mediaFileUrl(fileName),
     mimeType,
     assetType,
     branch,
     size: bytes.length,
+    ...(bytes.length <= maxStoredMediaBytes ? { data: bytes } : {}),
   });
 
-  response.status(201).json(asset);
+  const assetResponse = asset.toObject() as Record<string, unknown>;
+  delete assetResponse.data;
+
+  response.status(201).json(assetResponse);
+}
+
+export async function serveMediaAssetFile(request: Request, response: Response) {
+  const fileName = toText(request.params.fileName).slice(0, 260);
+
+  if (!isSafeMediaFileName(fileName)) {
+    response.status(400).json({ message: "Invalid media file path" });
+    return;
+  }
+
+  for (const uploadDirectory of mediaUploadCandidates()) {
+    const root = path.resolve(uploadDirectory);
+    const filePath = path.resolve(root, fileName);
+
+    if (!filePath.startsWith(`${root}${path.sep}`)) {
+      continue;
+    }
+
+    try {
+      const fileStat = await stat(filePath);
+      if (!fileStat.isFile()) {
+        continue;
+      }
+
+      response.sendFile(filePath);
+      return;
+    } catch {
+      // Try the next deployment layout.
+    }
+  }
+
+  const apiUrl = mediaFileUrl(fileName);
+  const legacyUrl = `/uploads/media/${fileName}`;
+  const asset = await MediaAsset.findOne({ url: { $in: [apiUrl, legacyUrl] }, isArchived: false }).select("+data");
+
+  if (asset?.data && Buffer.isBuffer(asset.data)) {
+    response.type(asset.mimeType || "application/octet-stream");
+    response.setHeader("Cache-Control", "private, max-age=3600");
+    response.send(asset.data);
+    return;
+  }
+
+  response.status(404).json({ message: "Media file not found" });
 }
 
 export async function archiveMediaAsset(request: Request, response: Response) {
   const asset = await MediaAsset.findByIdAndUpdate(
     request.params.id,
     { isArchived: true },
-    { new: true, runValidators: true }
+    { returnDocument: "after", runValidators: true }
   );
 
   if (!asset) {

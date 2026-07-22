@@ -41,7 +41,7 @@ export async function updateBranch(request: Request, response: Response) {
       company: request.body.company || "Assistly",
       location: request.body.location || "",
     },
-    { new: true, runValidators: true }
+    { returnDocument: "after", runValidators: true }
   );
 
   if (!branch) {
@@ -56,7 +56,7 @@ export async function archiveBranch(request: Request, response: Response) {
   const branch = await Branch.findByIdAndUpdate(
     request.params.id,
     { isArchived: true },
-    { new: true, runValidators: true }
+    { returnDocument: "after", runValidators: true }
   );
 
   if (!branch) {

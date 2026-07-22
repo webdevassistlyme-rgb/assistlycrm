@@ -22,7 +22,7 @@ export function DataTableSortHeader({
         <button
             className={[
                 "inline-flex h-8 items-center gap-2 rounded-md px-2 text-left transition",
-                isActive ? "bg-[#842cff]/12 text-white" : "text-white/60 hover:bg-white/[0.05] hover:text-white",
+                isActive ? "theme-primary-soft-bg text-white" : "text-white/60 hover:bg-white/[0.05] hover:text-white",
             ].join(" ")}
             type="button"
             onClick={() => onSort(field)}
@@ -30,7 +30,7 @@ export function DataTableSortHeader({
             <span
                 className={[
                     "flex size-5 shrink-0 items-center justify-center rounded border transition",
-                    isActive ? "border-[#842cff]/45 bg-[#842cff]/18 text-[#cdb8ff]" : "border-white/10 bg-white/[0.03] text-white/30",
+                    isActive ? "theme-primary-border theme-primary-soft-bg theme-primary-text" : "border-white/10 bg-white/[0.03] text-white/30",
                 ].join(" ")}
                 aria-hidden="true"
             >
@@ -91,7 +91,7 @@ export function DataTablePagination({
                 <label className="flex items-center gap-2 text-xs font-semibold text-white/45">
                     Rows
                     <select
-                        className="h-9 rounded-lg border border-white/10 bg-[#080b12] px-2 text-sm font-semibold text-white outline-none transition focus:border-[#842cff] focus:ring-2 focus:ring-[#842cff]/20"
+                        className="theme-modal-bg h-9 rounded-lg border border-white/10 px-2 text-sm font-semibold text-white outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--primary)_20%,transparent)]"
                         value={pageSize}
                         onChange={(event) => onPageSizeChange(Number(event.target.value))}
                     >
@@ -123,7 +123,7 @@ export function DataTablePagination({
                                 className={[
                                     "flex h-9 min-w-9 items-center justify-center rounded-lg border px-2 text-xs font-semibold transition",
                                     item === safePage
-                                        ? "border-[#842cff]/60 bg-[#842cff]/20 text-white"
+                                        ? "theme-primary-border theme-primary-soft-bg text-white"
                                         : "border-white/10 bg-white/[0.04] text-white/55 hover:bg-white/[0.08] hover:text-white",
                                 ].join(" ")}
                                 type="button"

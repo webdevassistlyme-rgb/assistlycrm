@@ -5,7 +5,7 @@ export function useFeatureFlags() {
     const query = useQuery({
         queryKey: ["features"],
         queryFn: getFeatures,
-        staleTime: 30_000,
+        staleTime: 10 * 60 * 1000,
     });
 
     const isEnabled = (key: FeatureKey, scope: "admin" | "employee") => {

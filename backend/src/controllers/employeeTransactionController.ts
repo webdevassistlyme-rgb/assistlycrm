@@ -24,8 +24,8 @@ export async function listEmployeeTransactions(request: Request, response: Respo
   const filter: Record<string, unknown> = { employee: employeeId };
 
   if (date) {
-    const start = new Date(`${date}T00:00:00.000Z`);
-    const end = new Date(`${date}T23:59:59.999Z`);
+    const start = new Date(`${date}T00:00:00.000-05:00`);
+    const end = new Date(`${date}T23:59:59.999-05:00`);
 
     if (!Number.isNaN(start.getTime()) && !Number.isNaN(end.getTime())) {
       filter.occurredAt = { $gte: start, $lte: end };

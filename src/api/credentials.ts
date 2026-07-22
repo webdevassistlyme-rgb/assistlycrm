@@ -4,20 +4,24 @@ export type CredentialStatus = "Active" | "Review" | "Archived";
 
 export type Credential = {
     _id: string;
+    accountName: string;
     username: string;
     password: string;
     platform: string;
     company: string;
+    team: string;
     status: CredentialStatus;
     createdAt?: string;
     updatedAt?: string;
 };
 
 export type CredentialInput = {
+    accountName: string;
     username: string;
     password: string;
     platform: string;
     company: string;
+    team: string;
     status?: CredentialStatus;
 };
 

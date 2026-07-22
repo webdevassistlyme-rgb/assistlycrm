@@ -1,7 +1,1562 @@
 @import "tailwindcss";
 
 :root {
-  font-size: 14px;
+  font-size: 15px;
+  --app-bg: #070910;
+  --shell-bg: #070910;
+  --surface-bg: #090b13;
+  --panel-bg: #11141d;
+  --modal-bg: #0d1018;
+  --primary: #842cff;
+  --primary-dark: #4a0ebd;
+  --primary-soft: #9b5cff;
+  --primary-text: #b994ff;
+  --secondary: #238aff;
+}
+
+.knowledge-base-product-editor .ck.ck-editor {
+  width: 100%;
+}
+
+.knowledge-base-product-editor .ck.ck-toolbar {
+  border: 0;
+  border-bottom: 1px solid #cbd5e1;
+  background: #f8fafc;
+}
+
+.knowledge-base-product-editor .ck.ck-editor__main > .ck-editor__editable {
+  min-height: 12rem;
+  height: auto;
+  max-height: none;
+  overflow: visible;
+  border: 0;
+  box-shadow: none;
+  color: #0f172a;
+  font-size: 1rem;
+  line-height: 1.75;
+  padding: 1rem 1.125rem;
+}
+
+.knowledge-base-product-editor .ck.ck-editor__main > .ck-editor__editable.ck-focused {
+  border: 0;
+  box-shadow: none;
+}
+
+.knowledge-base-product-editor .ck-content :where(figure.image, .image-inline) {
+  cursor: grab;
+  touch-action: none;
+}
+
+.knowledge-base-product-editor .ck-content figure.image :where(figcaption, .ck-editor__nested-editable) {
+  cursor: text;
+  touch-action: auto;
+}
+
+.knowledge-base-product-editor .ck-content :where(figure.image, .image-inline).knowledge-base-image-position-dragging {
+  cursor: grabbing;
+  opacity: 0.86;
+  z-index: 4;
+  user-select: none;
+}
+
+.knowledge-base-product-editor .ck.ck-editor__editable :where(figure.image, .image-inline).ck-widget_selected {
+  outline: 2px solid #842cff;
+  outline-offset: 2px;
+}
+
+.knowledge-base-product-editor .ck.ck-editor__editable .ck-widget__selection-handle {
+  background: #ffffff;
+  border: 1px solid #94a3b8;
+  color: #0f172a;
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.18);
+}
+
+.knowledge-base-product-editor .ck.ck-editor__editable .ck-widget__resizer {
+  z-index: 5;
+}
+
+.knowledge-base-product-editor .ck.ck-editor__editable .ck-widget__resizer__handle {
+  width: 12px;
+  height: 12px;
+  background: #842cff;
+  border: 2px solid #ffffff;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.28);
+}
+
+.knowledge-base-product-editor .ck.ck-editor__editable .ck-widget__resizer__handle:hover {
+  background: #4a0ebd;
+}
+
+.knowledge-base-rich-content :where(p, ul, ol, blockquote, table, figure) {
+  margin-top: 0.75rem;
+}
+
+.knowledge-base-rich-content :where(p:first-child, ul:first-child, ol:first-child, blockquote:first-child, table:first-child, figure:first-child) {
+  margin-top: 0;
+}
+
+.knowledge-base-rich-content :where(ul, ol) {
+  padding-left: 1.5rem;
+}
+
+.knowledge-base-rich-content ul {
+  list-style: disc;
+}
+
+.knowledge-base-rich-content ol {
+  list-style: decimal;
+}
+
+.knowledge-base-rich-content a {
+  color: #bda7ff;
+  font-weight: 700;
+  text-decoration: underline;
+}
+
+.knowledge-base-rich-content blockquote {
+  border-left: 3px solid #842cff;
+  padding-left: 1rem;
+  color: rgba(255, 255, 255, 0.68);
+}
+
+.knowledge-base-rich-content table {
+  width: 100%;
+  border-collapse: collapse;
+  overflow: hidden;
+  border: 1px solid rgba(148, 163, 184, 0.38);
+  border-radius: 0.5rem;
+}
+
+.knowledge-base-rich-content :where(th, td) {
+  border: 1px solid rgba(148, 163, 184, 0.32);
+  padding: 0.5rem 0.625rem;
+}
+
+.knowledge-base-rich-content figure.image {
+  display: table;
+  max-width: 100%;
+}
+
+.knowledge-base-rich-content figure.image-style-side {
+  float: right;
+  max-width: 50%;
+  margin-left: 1rem;
+}
+
+.knowledge-base-rich-content figure.image-style-align-left,
+.knowledge-base-rich-content .image-inline.image-style-align-left {
+  float: left;
+  max-width: 50%;
+  margin-right: 1rem;
+}
+
+.knowledge-base-rich-content figure.image-style-align-center {
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.knowledge-base-rich-content figure.image-style-align-right,
+.knowledge-base-rich-content .image-inline.image-style-align-right {
+  float: right;
+  max-width: 50%;
+  margin-left: 1rem;
+}
+
+.knowledge-base-rich-content figure.image img,
+.knowledge-base-rich-content img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 0.5rem;
+}
+
+.knowledge-base-rich-content figure.image figcaption {
+  caption-side: bottom;
+  display: table-caption;
+  margin-top: 0.4rem;
+  color: rgba(255, 255, 255, 0.52);
+  font-size: 0.82em;
+  text-align: center;
+}
+
+.knowledge-base-rich-content .text-tiny {
+  font-size: 0.72em;
+}
+
+.knowledge-base-rich-content .text-small {
+  font-size: 0.86em;
+}
+
+.knowledge-base-rich-content .text-big {
+  font-size: 1.4em;
+}
+
+.knowledge-base-rich-content .text-huge {
+  font-size: 1.8em;
+}
+
+.knowledge-base-rich-content-light a {
+  color: #5f27cd;
+}
+
+.knowledge-base-rich-content-light blockquote {
+  color: #475569;
+}
+
+.knowledge-base-rich-content-light figure.image figcaption {
+  color: #64748b;
+}
+
+.theme-app-bg {
+  background: var(--app-bg);
+}
+
+.theme-shell-bg {
+  background: color-mix(in srgb, var(--shell-bg) 92%, transparent);
+}
+
+.theme-header-bg {
+  background: color-mix(in srgb, var(--shell-bg) 82%, transparent);
+}
+
+.theme-surface-bg {
+  background: color-mix(in srgb, var(--surface-bg) 88%, transparent);
+}
+
+.theme-panel-bg {
+  background: color-mix(in srgb, var(--panel-bg) 84%, transparent);
+}
+
+.theme-modal-bg {
+  background: var(--modal-bg);
+}
+
+.theme-primary-bg {
+  background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+  color: #ffffff;
+}
+
+.theme-primary-solid {
+  background: var(--primary);
+  color: #ffffff;
+}
+
+.theme-primary-text {
+  color: var(--primary-text);
+}
+
+.theme-primary-border {
+  border-color: color-mix(in srgb, var(--primary) 55%, transparent);
+}
+
+.theme-primary-soft-bg {
+  background: color-mix(in srgb, var(--primary) 18%, transparent);
+}
+
+.theme-focus {
+  --tw-ring-color: color-mix(in srgb, var(--primary) 55%, transparent);
+}
+
+.theme-toast {
+  background: color-mix(in srgb, var(--panel-bg) 92%, transparent);
+  border-color: color-mix(in srgb, var(--toast-accent, var(--primary)) 28%, rgba(255, 255, 255, 0.14));
+  color: #ffffff;
+}
+
+.theme-toast-icon {
+  background: color-mix(in srgb, var(--toast-accent, var(--primary)) 16%, transparent);
+  border-color: color-mix(in srgb, var(--toast-accent, var(--primary)) 35%, transparent);
+  color: color-mix(in srgb, var(--toast-accent, var(--primary)) 72%, #ffffff);
+}
+
+.theme-toast-success {
+  --toast-accent: var(--secondary);
+}
+
+.theme-toast-error {
+  --toast-accent: #e74c3c;
+}
+
+.theme-toast-info {
+  --toast-accent: var(--primary);
+}
+
+.admin-sidebar-nav-command,
+.admin-sidebar-account-command {
+  display: none;
+}
+
+.admin-sidebar-nav-legacy,
+.admin-sidebar-account-legacy {
+  display: block;
+}
+
+:root[data-theme^="light-"],
+:root[data-theme^="mail-"] {
+  color-scheme: light;
+}
+
+:root[data-theme^="light-"] .text-white,
+:root[data-theme^="light-"] .text-white\/80,
+:root[data-theme^="light-"] .text-white\/75,
+:root[data-theme^="light-"] .text-white\/70,
+:root[data-theme^="light-"] .text-white\/65,
+:root[data-theme^="light-"] .text-white\/60,
+:root[data-theme^="light-"] .text-white\/55,
+:root[data-theme^="mail-"] main .text-white,
+:root[data-theme^="mail-"] main .text-white\/80,
+:root[data-theme^="mail-"] main .text-white\/75,
+:root[data-theme^="mail-"] main .text-white\/70,
+:root[data-theme^="mail-"] main .text-white\/65,
+:root[data-theme^="mail-"] main .text-white\/60,
+:root[data-theme^="mail-"] main .text-white\/55 {
+  color: #17202a !important;
+}
+
+:root[data-theme^="light-"] .text-white\/50,
+:root[data-theme^="light-"] .text-white\/45,
+:root[data-theme^="light-"] .text-white\/40,
+:root[data-theme^="light-"] .text-white\/38,
+:root[data-theme^="light-"] .text-white\/35,
+:root[data-theme^="light-"] .text-white\/30,
+:root[data-theme^="light-"] .text-white\/25,
+:root[data-theme^="mail-"] main .text-white\/50,
+:root[data-theme^="mail-"] main .text-white\/45,
+:root[data-theme^="mail-"] main .text-white\/40,
+:root[data-theme^="mail-"] main .text-white\/38,
+:root[data-theme^="mail-"] main .text-white\/35,
+:root[data-theme^="mail-"] main .text-white\/30,
+:root[data-theme^="mail-"] main .text-white\/25 {
+  color: rgba(23, 32, 42, 0.62) !important;
+}
+
+:root[data-theme^="light-"] .border-white\/10,
+:root[data-theme^="light-"] .border-white\/20,
+:root[data-theme^="mail-"] main .border-white\/10,
+:root[data-theme^="mail-"] main .border-white\/20 {
+  border-color: rgba(44, 62, 80, 0.28) !important;
+}
+
+:root[data-theme^="light-"] .divide-white\/10 > :not(:last-child),
+:root[data-theme^="mail-"] main .divide-white\/10 > :not(:last-child) {
+  border-color: rgba(44, 62, 80, 0.24) !important;
+}
+
+:root[data-theme^="light-"] main table tr,
+:root[data-theme^="mail-"] main table tr {
+  border-color: rgba(44, 62, 80, 0.2);
+}
+
+:root[data-theme^="light-"] main tbody tr + tr,
+:root[data-theme^="mail-"] main tbody tr + tr {
+  border-top: 1px solid rgba(44, 62, 80, 0.16);
+}
+
+:root[data-theme^="light-"] main thead,
+:root[data-theme^="mail-"] main thead {
+  box-shadow: inset 0 -1px rgba(44, 62, 80, 0.22);
+}
+
+:root[data-theme^="light-"] main button:not(.theme-primary-bg):not(.theme-primary-solid):not(.bg-\[\#842cff\]),
+:root[data-theme^="mail-"] main button:not(.theme-primary-bg):not(.theme-primary-solid):not(.bg-\[\#842cff\]) {
+  border-color: rgba(44, 62, 80, 0.26);
+}
+
+:root[data-theme^="light-"] main button.border-white\/10:not(.theme-primary-bg):not(.theme-primary-solid):not(.bg-\[\#842cff\]),
+:root[data-theme^="light-"] main a.border-white\/10,
+:root[data-theme^="mail-"] main button.border-white\/10:not(.theme-primary-bg):not(.theme-primary-solid):not(.bg-\[\#842cff\]),
+:root[data-theme^="mail-"] main a.border-white\/10 {
+  background-color: rgba(255, 255, 255, 0.74) !important;
+  border-color: rgba(44, 62, 80, 0.28) !important;
+  box-shadow: 0 1px 2px rgba(44, 62, 80, 0.06);
+}
+
+:root[data-theme^="light-"] main button.border-white\/10:hover:not(.theme-primary-bg):not(.theme-primary-solid):not(.bg-\[\#842cff\]),
+:root[data-theme^="light-"] main a.border-white\/10:hover,
+:root[data-theme^="mail-"] main button.border-white\/10:hover:not(.theme-primary-bg):not(.theme-primary-solid):not(.bg-\[\#842cff\]),
+:root[data-theme^="mail-"] main a.border-white\/10:hover {
+  background-color: rgba(44, 62, 80, 0.08) !important;
+  border-color: rgba(44, 62, 80, 0.36) !important;
+}
+
+:root[data-theme^="light-"] main button:disabled,
+:root[data-theme^="mail-"] main button:disabled {
+  opacity: 0.5;
+}
+
+:root[data-theme^="light-"] .bg-white\/\[0\.02\],
+:root[data-theme^="light-"] .bg-white\/\[0\.025\],
+:root[data-theme^="light-"] .bg-white\/\[0\.035\],
+:root[data-theme^="light-"] .bg-white\/\[0\.04\],
+:root[data-theme^="light-"] .bg-white\/\[0\.05\],
+:root[data-theme^="light-"] .bg-white\/\[0\.06\],
+:root[data-theme^="mail-"] main .bg-white\/\[0\.02\],
+:root[data-theme^="mail-"] main .bg-white\/\[0\.025\],
+:root[data-theme^="mail-"] main .bg-white\/\[0\.035\],
+:root[data-theme^="mail-"] main .bg-white\/\[0\.04\],
+:root[data-theme^="mail-"] main .bg-white\/\[0\.05\],
+:root[data-theme^="mail-"] main .bg-white\/\[0\.06\] {
+  background-color: rgba(44, 62, 80, 0.05) !important;
+}
+
+:root[data-theme^="light-"] .theme-toast,
+:root[data-theme^="mail-"] .theme-toast {
+  background: color-mix(in srgb, var(--surface-bg) 94%, var(--toast-accent, var(--primary)) 6%);
+  border-color: color-mix(in srgb, var(--toast-accent, var(--primary)) 34%, rgba(44, 62, 80, 0.14));
+  color: #17202a;
+  box-shadow: 0 18px 45px rgba(44, 62, 80, 0.18);
+}
+
+:root[data-theme^="light-"] .theme-toast-icon,
+:root[data-theme^="mail-"] .theme-toast-icon {
+  background: color-mix(in srgb, var(--toast-accent, var(--primary)) 12%, #ffffff);
+  border-color: color-mix(in srgb, var(--toast-accent, var(--primary)) 28%, rgba(44, 62, 80, 0.12));
+  color: color-mix(in srgb, var(--toast-accent, var(--primary)) 78%, #17202a);
+}
+
+:root[data-theme^="mail-"] .theme-header-bg {
+  background: color-mix(in srgb, var(--surface-bg) 96%, transparent);
+  box-shadow: 0 1px 0 rgba(44, 62, 80, 0.08);
+}
+
+:root[data-theme^="mail-"] .theme-app-bg {
+  background: #ffffff;
+}
+
+:root[data-theme^="mail-"] .theme-app-bg > .pointer-events-none.fixed.inset-0 {
+  display: none;
+}
+
+:root[data-theme^="mail-"] main > .content-scroll {
+  background: #ffffff;
+}
+
+:root[data-theme="mail-lavender"] .theme-app-bg,
+:root[data-theme="mail-lavender"] main > .content-scroll {
+  background: #f8f5ff;
+}
+
+:root[data-theme="mail-lavender"] .theme-header-bg {
+  background: #fbfaff;
+}
+
+:root[data-theme="mail-lavender"] main .admin-leads-list-panel,
+:root[data-theme="mail-lavender"] main .employee-leads-list-panel {
+  background: linear-gradient(180deg, #cabade 0%, #c2b0d6 100%) !important;
+  border-color: rgba(70, 50, 112, 0.52) !important;
+  box-shadow: 0 18px 38px rgba(56, 45, 92, 0.2);
+}
+
+:root[data-theme="mail-lavender"] main .admin-leads-list-panel .bg-black\/20,
+:root[data-theme="mail-lavender"] main .admin-leads-list-panel .bg-white\/\[0\.04\],
+:root[data-theme="mail-lavender"] main .admin-leads-list-panel .bg-white\/\[0\.06\],
+:root[data-theme="mail-lavender"] main .employee-leads-list-panel .bg-black\/20,
+:root[data-theme="mail-lavender"] main .employee-leads-list-panel .bg-white\/\[0\.04\],
+:root[data-theme="mail-lavender"] main .employee-leads-list-panel .bg-white\/\[0\.06\] {
+  background-color: rgba(232, 224, 244, 0.58) !important;
+}
+
+:root[data-theme="mail-lavender"] main .admin-leads-list-panel label,
+:root[data-theme="mail-lavender"] main .admin-leads-list-panel select,
+:root[data-theme="mail-lavender"] main .employee-leads-list-panel label,
+:root[data-theme="mail-lavender"] main .employee-leads-list-panel select {
+  background-color: rgba(240, 234, 249, 0.76) !important;
+  border-color: rgba(70, 50, 112, 0.46) !important;
+}
+
+:root[data-theme="mail-lavender"] main .admin-leads-list-panel .divide-y > :not(:last-child),
+:root[data-theme="mail-lavender"] main .employee-leads-list-panel .divide-y > :not(:last-child) {
+  border-color: rgba(70, 50, 112, 0.34) !important;
+}
+
+:root[data-theme="mail-lavender"] main .admin-lead-detail-area .bg-white\/\[0\.04\],
+:root[data-theme="mail-lavender"] main .admin-lead-detail-area .bg-black\/10,
+:root[data-theme="mail-lavender"] main .admin-lead-detail-area .bg-black\/20,
+:root[data-theme="mail-lavender"] main .employee-lead-detail-area .bg-white\/\[0\.04\],
+:root[data-theme="mail-lavender"] main .employee-lead-detail-area .bg-black\/10,
+:root[data-theme="mail-lavender"] main .employee-lead-detail-area .bg-black\/20 {
+  background-color: #c7d6ee !important;
+  border-color: rgba(47, 128, 237, 0.54) !important;
+}
+
+:root[data-theme="mail-lavender"] main .admin-lead-detail-area input,
+:root[data-theme="mail-lavender"] main .admin-lead-detail-area textarea,
+:root[data-theme="mail-lavender"] main .admin-lead-detail-area select,
+:root[data-theme="mail-lavender"] main .employee-lead-detail-area input,
+:root[data-theme="mail-lavender"] main .employee-lead-detail-area textarea,
+:root[data-theme="mail-lavender"] main .employee-lead-detail-area select {
+  background-color: #edf3ff !important;
+  border-color: rgba(47, 128, 237, 0.42) !important;
+}
+
+:root[data-theme^="mail-"] main .flat-action-button {
+  color: #17202a !important;
+  box-shadow: 0 8px 18px rgba(44, 62, 80, 0.08);
+}
+
+:root[data-theme^="mail-"] main .flat-action-button svg {
+  color: inherit;
+}
+
+:root[data-theme^="mail-"] main .flat-action-import {
+  background-color: color-mix(in srgb, #1abc9c 22%, #ffffff) !important;
+  border-color: color-mix(in srgb, #1abc9c 58%, transparent) !important;
+}
+
+:root[data-theme^="mail-"] main .flat-action-import:hover:not(:disabled) {
+  background-color: color-mix(in srgb, #1abc9c 32%, #ffffff) !important;
+}
+
+:root[data-theme^="mail-"] main .flat-action-reassign {
+  background-color: color-mix(in srgb, #3498db 20%, #ffffff) !important;
+  border-color: color-mix(in srgb, #3498db 58%, transparent) !important;
+}
+
+:root[data-theme^="mail-"] main .flat-action-reassign:hover:not(:disabled) {
+  background-color: color-mix(in srgb, #3498db 30%, #ffffff) !important;
+}
+
+:root[data-theme^="mail-"] main .flat-action-auto-update {
+  background-color: color-mix(in srgb, #f1c40f 24%, #ffffff) !important;
+  border-color: color-mix(in srgb, #f39c12 62%, transparent) !important;
+}
+
+:root[data-theme^="mail-"] main .flat-action-auto-update:hover:not(:disabled) {
+  background-color: color-mix(in srgb, #f1c40f 36%, #ffffff) !important;
+}
+
+:root[data-theme^="mail-"] main button.bg-\[\#842cff\],
+:root[data-theme^="mail-"] main a.bg-\[\#842cff\],
+:root[data-theme^="mail-"] main button[class*="bg-[linear-gradient"],
+:root[data-theme^="mail-"] main a[class*="bg-[linear-gradient"],
+:root[data-theme^="mail-"] main .theme-primary-bg,
+:root[data-theme^="mail-"] main .theme-primary-solid {
+  color: #ffffff !important;
+}
+
+:root[data-theme^="light-"] main .bg-\[\#842cff\]\/10,
+:root[data-theme^="light-"] main .bg-\[\#842cff\]\/12,
+:root[data-theme^="light-"] main .bg-\[\#842cff\]\/15,
+:root[data-theme^="light-"] main .bg-\[\#842cff\]\/18,
+:root[data-theme^="light-"] main .bg-\[\#842cff\]\/20,
+:root[data-theme^="light-"] main .theme-primary-soft-bg,
+:root[data-theme^="mail-"] main .bg-\[\#842cff\]\/10,
+:root[data-theme^="mail-"] main .bg-\[\#842cff\]\/12,
+:root[data-theme^="mail-"] main .bg-\[\#842cff\]\/15,
+:root[data-theme^="mail-"] main .bg-\[\#842cff\]\/18,
+:root[data-theme^="mail-"] main .bg-\[\#842cff\]\/20,
+:root[data-theme^="mail-"] main .theme-primary-soft-bg {
+  background-color: color-mix(in srgb, var(--primary) 12%, #ffffff) !important;
+  border-color: color-mix(in srgb, var(--primary) 58%, transparent) !important;
+  color: var(--primary-dark) !important;
+}
+
+:root[data-theme^="light-"] main .bg-\[\#842cff\]\/10:disabled,
+:root[data-theme^="light-"] main .bg-\[\#842cff\]\/12:disabled,
+:root[data-theme^="light-"] main .bg-\[\#842cff\]\/15:disabled,
+:root[data-theme^="light-"] main .bg-\[\#842cff\]\/18:disabled,
+:root[data-theme^="light-"] main .bg-\[\#842cff\]\/20:disabled,
+:root[data-theme^="mail-"] main .bg-\[\#842cff\]\/10:disabled,
+:root[data-theme^="mail-"] main .bg-\[\#842cff\]\/12:disabled,
+:root[data-theme^="mail-"] main .bg-\[\#842cff\]\/15:disabled,
+:root[data-theme^="mail-"] main .bg-\[\#842cff\]\/18:disabled,
+:root[data-theme^="mail-"] main .bg-\[\#842cff\]\/20:disabled {
+  color: #111827 !important;
+}
+
+:root[data-theme^="mail-"] main .admin-leads-list-panel {
+  background: linear-gradient(180deg, #ece6f8 0%, #e5def2 100%) !important;
+  border-color: rgba(92, 75, 135, 0.3) !important;
+  box-shadow: 0 14px 34px rgba(56, 45, 92, 0.13);
+}
+
+:root[data-theme^="mail-"] main .admin-leads-list-panel .bg-black\/20,
+:root[data-theme^="mail-"] main .admin-leads-list-panel .bg-white\/\[0\.04\],
+:root[data-theme^="mail-"] main .admin-leads-list-panel .bg-white\/\[0\.06\],
+:root[data-theme^="mail-"] main .employee-leads-list-panel .bg-black\/20,
+:root[data-theme^="mail-"] main .employee-leads-list-panel .bg-white\/\[0\.04\],
+:root[data-theme^="mail-"] main .employee-leads-list-panel .bg-white\/\[0\.06\] {
+  background-color: rgba(255, 255, 255, 0.48) !important;
+}
+
+:root[data-theme^="mail-"] main .admin-leads-list-panel > div,
+:root[data-theme^="mail-"] main .employee-leads-list-panel > div {
+  border-color: rgba(92, 75, 135, 0.24) !important;
+}
+
+:root[data-theme^="mail-"] main .admin-leads-list-panel,
+:root[data-theme^="mail-"] main .employee-leads-list-panel,
+:root[data-theme^="mail-"] main .admin-leads-list-panel .text-white,
+:root[data-theme^="mail-"] main .admin-leads-list-panel .text-white\/70,
+:root[data-theme^="mail-"] main .admin-leads-list-panel .text-white\/65,
+:root[data-theme^="mail-"] main .admin-leads-list-panel .text-white\/60,
+:root[data-theme^="mail-"] main .admin-leads-list-panel .text-white\/55,
+:root[data-theme^="mail-"] main .employee-leads-list-panel .text-white,
+:root[data-theme^="mail-"] main .employee-leads-list-panel .text-white\/70,
+:root[data-theme^="mail-"] main .employee-leads-list-panel .text-white\/65,
+:root[data-theme^="mail-"] main .employee-leads-list-panel .text-white\/60,
+:root[data-theme^="mail-"] main .employee-leads-list-panel .text-white\/55 {
+  color: #211b32 !important;
+}
+
+:root[data-theme^="mail-"] main .admin-leads-list-panel .text-white\/45,
+:root[data-theme^="mail-"] main .admin-leads-list-panel .text-white\/40,
+:root[data-theme^="mail-"] main .admin-leads-list-panel .text-white\/35,
+:root[data-theme^="mail-"] main .admin-leads-list-panel .text-white\/30,
+:root[data-theme^="mail-"] main .employee-leads-list-panel .text-white\/45,
+:root[data-theme^="mail-"] main .employee-leads-list-panel .text-white\/40,
+:root[data-theme^="mail-"] main .employee-leads-list-panel .text-white\/35,
+:root[data-theme^="mail-"] main .employee-leads-list-panel .text-white\/30 {
+  color: rgba(33, 27, 50, 0.62) !important;
+}
+
+:root[data-theme^="mail-"] main .admin-leads-list-panel .text-\[\#9b5cff\],
+:root[data-theme^="mail-"] main .admin-leads-list-panel .text-\[\#b994ff\],
+:root[data-theme^="mail-"] main .admin-leads-list-panel .text-\[\#cbb7ff\],
+:root[data-theme^="mail-"] main .admin-leads-list-panel .text-\[\#d8c6ff\],
+:root[data-theme^="mail-"] main .employee-leads-list-panel .text-\[\#9b5cff\],
+:root[data-theme^="mail-"] main .employee-leads-list-panel .text-\[\#b994ff\],
+:root[data-theme^="mail-"] main .employee-leads-list-panel .text-\[\#cbb7ff\],
+:root[data-theme^="mail-"] main .employee-leads-list-panel .text-\[\#d8c6ff\] {
+  color: var(--primary-dark) !important;
+}
+
+:root[data-theme^="mail-"] main .admin-leads-list-panel label,
+:root[data-theme^="mail-"] main .admin-leads-list-panel select,
+:root[data-theme^="mail-"] main .employee-leads-list-panel label,
+:root[data-theme^="mail-"] main .employee-leads-list-panel select {
+  background-color: rgba(255, 255, 255, 0.62) !important;
+  border-color: rgba(92, 75, 135, 0.3) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.74);
+}
+
+:root[data-theme^="mail-"] main .admin-leads-list-panel button.w-full {
+  border-left: 3px solid transparent;
+}
+
+:root[data-theme^="mail-"] main .admin-leads-list-panel button.w-full:hover {
+  background-color: rgba(111, 75, 255, 0.12) !important;
+  border-left-color: rgba(111, 75, 255, 0.35);
+}
+
+:root[data-theme^="mail-"] main .admin-leads-list-panel button.w-full.bg-white\/\[0\.07\] {
+  background-color: rgba(111, 75, 255, 0.17) !important;
+  border-left-color: var(--primary);
+}
+
+:root[data-theme^="mail-"] main .admin-leads-list-panel .divide-y > :not(:last-child),
+:root[data-theme^="mail-"] main .employee-leads-list-panel .divide-y > :not(:last-child) {
+  border-color: rgba(92, 75, 135, 0.2) !important;
+}
+
+:root[data-theme^="mail-"] main .admin-lead-detail-area .bg-white\/\[0\.04\],
+:root[data-theme^="mail-"] main .admin-lead-detail-area .bg-black\/10,
+:root[data-theme^="mail-"] main .admin-lead-detail-area .bg-black\/20,
+:root[data-theme^="mail-"] main .employee-lead-detail-area .bg-white\/\[0\.04\],
+:root[data-theme^="mail-"] main .employee-lead-detail-area .bg-black\/10,
+:root[data-theme^="mail-"] main .employee-lead-detail-area .bg-black\/20 {
+  background-color: #e2ebfb !important;
+  border-color: rgba(47, 128, 237, 0.36) !important;
+}
+
+:root[data-theme^="mail-"] main .admin-lead-detail-area input,
+:root[data-theme^="mail-"] main .admin-lead-detail-area textarea,
+:root[data-theme^="mail-"] main .admin-lead-detail-area select,
+:root[data-theme^="mail-"] main .employee-lead-detail-area input,
+:root[data-theme^="mail-"] main .employee-lead-detail-area textarea,
+:root[data-theme^="mail-"] main .employee-lead-detail-area select {
+  background-color: #f7faff !important;
+  border-color: rgba(47, 128, 237, 0.36) !important;
+}
+
+:root[data-theme^="mail-"] main .admin-lead-detail-area .admin-follow-up-schedule-button,
+:root[data-theme^="mail-"] main .admin-lead-detail-area .admin-follow-up-schedule-button:disabled,
+:root[data-theme^="mail-"] main .admin-lead-detail-area .admin-follow-up-schedule-button:hover {
+  color: #111827 !important;
+}
+
+:root[data-theme="mail-lavender"] .theme-app-bg,
+:root[data-theme="mail-lavender"] main > .content-scroll {
+  background: #550fdf12 !important;
+}
+
+:root[data-theme="mail-lavender"] main > .content-scroll:has(.admin-leads-page),
+:root[data-theme="mail-lavender"] main > .content-scroll:has(.employee-leads-page),
+:root[data-theme="mail-lavender"] main .admin-leads-page,
+:root[data-theme="mail-lavender"] main .employee-leads-page {
+  background: #550fdf12 !important;
+}
+
+:root[data-theme="mail-lavender"] main .admin-leads-list-panel,
+:root[data-theme="mail-lavender"] main .employee-leads-list-panel {
+  background: #f100ff30 !important;
+}
+
+:root[data-theme^="light-"] .theme-header-bg .text-white:not(.theme-primary-bg):not(.theme-primary-solid),
+:root[data-theme^="light-"] .theme-header-bg .text-white\/80:not(.theme-primary-bg):not(.theme-primary-solid),
+:root[data-theme^="light-"] .theme-header-bg .text-white\/75:not(.theme-primary-bg):not(.theme-primary-solid),
+:root[data-theme^="light-"] .theme-header-bg .text-white\/70:not(.theme-primary-bg):not(.theme-primary-solid),
+:root[data-theme^="light-"] .theme-header-bg .text-white\/65:not(.theme-primary-bg):not(.theme-primary-solid),
+:root[data-theme^="light-"] .theme-header-bg .text-white\/60:not(.theme-primary-bg):not(.theme-primary-solid),
+:root[data-theme^="light-"] .theme-header-bg .text-white\/55:not(.theme-primary-bg):not(.theme-primary-solid),
+:root[data-theme^="mail-"] .theme-header-bg .text-white:not(.theme-primary-bg):not(.theme-primary-solid),
+:root[data-theme^="mail-"] .theme-header-bg .text-white\/80:not(.theme-primary-bg):not(.theme-primary-solid),
+:root[data-theme^="mail-"] .theme-header-bg .text-white\/75:not(.theme-primary-bg):not(.theme-primary-solid),
+:root[data-theme^="mail-"] .theme-header-bg .text-white\/70:not(.theme-primary-bg):not(.theme-primary-solid),
+:root[data-theme^="mail-"] .theme-header-bg .text-white\/65:not(.theme-primary-bg):not(.theme-primary-solid),
+:root[data-theme^="mail-"] .theme-header-bg .text-white\/60:not(.theme-primary-bg):not(.theme-primary-solid),
+:root[data-theme^="mail-"] .theme-header-bg .text-white\/55:not(.theme-primary-bg):not(.theme-primary-solid) {
+  color: #17202a !important;
+}
+
+:root[data-theme^="light-"] .theme-header-bg .text-white\/50,
+:root[data-theme^="light-"] .theme-header-bg .text-white\/45,
+:root[data-theme^="light-"] .theme-header-bg .text-white\/40,
+:root[data-theme^="light-"] .theme-header-bg .text-white\/35,
+:root[data-theme^="light-"] .theme-header-bg .text-white\/30,
+:root[data-theme^="mail-"] .theme-header-bg .text-white\/50,
+:root[data-theme^="mail-"] .theme-header-bg .text-white\/45,
+:root[data-theme^="mail-"] .theme-header-bg .text-white\/40,
+:root[data-theme^="mail-"] .theme-header-bg .text-white\/35,
+:root[data-theme^="mail-"] .theme-header-bg .text-white\/30 {
+  color: rgba(23, 32, 42, 0.62) !important;
+}
+
+:root[data-theme^="light-"] .theme-header-bg .border-white\/10,
+:root[data-theme^="mail-"] .theme-header-bg .border-white\/10 {
+  border-color: rgba(44, 62, 80, 0.28) !important;
+}
+
+:root[data-theme^="light-"] .theme-header-bg .bg-white\/\[0\.06\],
+:root[data-theme^="light-"] .theme-header-bg .bg-white\/\[0\.08\],
+:root[data-theme^="mail-"] .theme-header-bg .bg-white\/\[0\.06\],
+:root[data-theme^="mail-"] .theme-header-bg .bg-white\/\[0\.08\] {
+  background-color: rgba(255, 255, 255, 0.78) !important;
+}
+
+:root[data-theme^="light-"] .theme-sidebar-logo-dark {
+  display: none !important;
+}
+
+:root[data-theme^="light-"] .theme-sidebar-logo-light {
+  display: block !important;
+}
+
+:root[data-theme^="light-"] .theme-primary-bg,
+:root[data-theme^="light-"] .theme-primary-solid,
+:root[data-theme^="light-"] .bg-\[\#842cff\],
+:root[data-theme^="mail-"] .theme-primary-bg,
+:root[data-theme^="mail-"] .theme-primary-solid,
+:root[data-theme^="mail-"] .bg-\[\#842cff\] {
+  color: #ffffff !important;
+}
+
+.bg-\[\#842cff\] {
+  background-color: var(--primary) !important;
+}
+
+.bg-\[\#842cff\]\/10 {
+  background-color: color-mix(in srgb, var(--primary) 10%, transparent) !important;
+}
+
+.bg-\[\#842cff\]\/12 {
+  background-color: color-mix(in srgb, var(--primary) 12%, transparent) !important;
+}
+
+.bg-\[\#842cff\]\/15 {
+  background-color: color-mix(in srgb, var(--primary) 15%, transparent) !important;
+}
+
+.bg-\[\#842cff\]\/18 {
+  background-color: color-mix(in srgb, var(--primary) 18%, transparent) !important;
+}
+
+.bg-\[\#842cff\]\/20 {
+  background-color: color-mix(in srgb, var(--primary) 20%, transparent) !important;
+}
+
+.bg-\[\#842cff\]\/25 {
+  background-color: color-mix(in srgb, var(--primary) 25%, transparent) !important;
+}
+
+.bg-\[\#842cff\]\/30 {
+  background-color: color-mix(in srgb, var(--primary) 30%, transparent) !important;
+}
+
+.bg-\[\#842cff\]\/45 {
+  background-color: color-mix(in srgb, var(--primary) 45%, transparent) !important;
+}
+
+.border-\[\#842cff\] {
+  border-color: var(--primary) !important;
+}
+
+.border-\[\#842cff\]\/25 {
+  border-color: color-mix(in srgb, var(--primary) 25%, transparent) !important;
+}
+
+.border-\[\#842cff\]\/30 {
+  border-color: color-mix(in srgb, var(--primary) 30%, transparent) !important;
+}
+
+.border-\[\#842cff\]\/35 {
+  border-color: color-mix(in srgb, var(--primary) 35%, transparent) !important;
+}
+
+.border-\[\#842cff\]\/40 {
+  border-color: color-mix(in srgb, var(--primary) 40%, transparent) !important;
+}
+
+.border-\[\#842cff\]\/45 {
+  border-color: color-mix(in srgb, var(--primary) 45%, transparent) !important;
+}
+
+.border-\[\#842cff\]\/50 {
+  border-color: color-mix(in srgb, var(--primary) 50%, transparent) !important;
+}
+
+.border-\[\#842cff\]\/60 {
+  border-color: color-mix(in srgb, var(--primary) 60%, transparent) !important;
+}
+
+.border-\[\#842cff\]\/70 {
+  border-color: color-mix(in srgb, var(--primary) 70%, transparent) !important;
+}
+
+.text-\[\#842cff\],
+.text-\[\#9b5cff\],
+.text-\[\#b78cff\],
+.text-\[\#b994ff\],
+.text-\[\#c7a7ff\],
+.text-\[\#c8a8ff\],
+.text-\[\#cbb7ff\],
+.text-\[\#cdb8ff\],
+.text-\[\#d7c3ff\],
+.text-\[\#d7c5ff\],
+.text-\[\#d8c6ff\],
+.text-\[\#d8c8ff\],
+.text-\[\#d9c5ff\] {
+  color: var(--primary-text) !important;
+}
+
+.accent-\[\#842cff\] {
+  accent-color: var(--primary) !important;
+}
+
+.bg-\[\#080b12\],
+.bg-\[\#090b13\],
+.bg-\[\#090b13\]\/80,
+.bg-\[\#0c1018\]\/70,
+.bg-\[\#0c1018\]\/80,
+.bg-\[\#0c1018\]\/85,
+.bg-\[\#0d1018\],
+.bg-\[\#0d111a\],
+.bg-\[\#101018\],
+.bg-\[\#10131b\],
+.bg-\[\#11141d\],
+.bg-\[\#11151f\],
+.bg-\[\#120f1f\],
+.bg-\[\#171a23\],
+.bg-\[\#1a1230\] {
+  background-color: var(--surface-bg) !important;
+}
+
+.theme-modal-bg,
+.modal-panel-enter.bg-\[\#0d1018\],
+select.bg-\[\#0d1018\],
+input.bg-\[\#0d1018\],
+textarea.bg-\[\#0d1018\] {
+  background-color: var(--modal-bg) !important;
+}
+
+:root[data-theme^="light-"] main .bg-\[\#080b12\],
+:root[data-theme^="light-"] main .bg-\[\#090b13\],
+:root[data-theme^="light-"] main .bg-\[\#090b13\]\/80,
+:root[data-theme^="light-"] main .bg-\[\#0c1018\]\/85,
+:root[data-theme^="light-"] main .bg-\[\#0d1018\],
+:root[data-theme^="light-"] main .bg-\[\#0d111a\],
+:root[data-theme^="light-"] main .bg-\[\#10131b\],
+:root[data-theme^="light-"] main .bg-\[\#11141d\],
+:root[data-theme^="light-"] main .bg-\[\#11151f\],
+:root[data-theme^="light-"] main .bg-\[\#120f1f\],
+:root[data-theme^="light-"] main .bg-\[\#171a23\],
+:root[data-theme^="light-"] main .bg-\[\#1a1230\],
+:root[data-theme^="mail-"] main .bg-\[\#080b12\],
+:root[data-theme^="mail-"] main .bg-\[\#090b13\],
+:root[data-theme^="mail-"] main .bg-\[\#090b13\]\/80,
+:root[data-theme^="mail-"] main .bg-\[\#0c1018\]\/85,
+:root[data-theme^="mail-"] main .bg-\[\#0d1018\],
+:root[data-theme^="mail-"] main .bg-\[\#0d111a\],
+:root[data-theme^="mail-"] main .bg-\[\#10131b\],
+:root[data-theme^="mail-"] main .bg-\[\#11141d\],
+:root[data-theme^="mail-"] main .bg-\[\#11151f\],
+:root[data-theme^="mail-"] main .bg-\[\#120f1f\],
+:root[data-theme^="mail-"] main .bg-\[\#171a23\],
+:root[data-theme^="mail-"] main .bg-\[\#1a1230\] {
+  background-color: color-mix(in srgb, var(--surface-bg) 90%, #ffffff 10%) !important;
+}
+
+:root[data-theme^="light-"] main .bg-black\/10,
+:root[data-theme^="light-"] main .bg-black\/20,
+:root[data-theme^="light-"] main .bg-black\/30,
+:root[data-theme^="mail-"] main .bg-black\/10,
+:root[data-theme^="mail-"] main .bg-black\/20,
+:root[data-theme^="mail-"] main .bg-black\/30 {
+  background-color: rgba(44, 62, 80, 0.05) !important;
+}
+
+:root[data-theme^="light-"] main .hover\:bg-white\/10:hover,
+:root[data-theme^="mail-"] main .hover\:bg-white\/10:hover {
+  background-color: rgba(44, 62, 80, 0.08) !important;
+}
+
+:root[data-theme^="light-"] option,
+:root[data-theme^="mail-"] option {
+  background-color: var(--surface-bg);
+  color: #17202a;
+}
+
+:root[data-theme^="mail-"] main button.flat-action-button.flat-action-import {
+  background: #10ac84 !important;
+  border-color: #10ac84 !important;
+  color: #ffffff !important;
+  opacity: 1 !important;
+}
+
+:root[data-theme^="mail-"] main button.flat-action-button.flat-action-import:hover:not(:disabled) {
+  background: #0b8f6e !important;
+  border-color: #0b8f6e !important;
+}
+
+:root[data-theme^="mail-"] main button.flat-action-button.flat-action-reassign {
+  background: #2e86de !important;
+  border-color: #2e86de !important;
+  color: #ffffff !important;
+  opacity: 1 !important;
+}
+
+:root[data-theme^="mail-"] main button.flat-action-button.flat-action-reassign:hover:not(:disabled) {
+  background: #1f6fbf !important;
+  border-color: #1f6fbf !important;
+}
+
+:root[data-theme^="mail-"] main button.flat-action-button.flat-action-auto-update {
+  background: #ff9f43 !important;
+  border-color: #ff9f43 !important;
+  color: #ffffff !important;
+  opacity: 1 !important;
+}
+
+:root[data-theme^="mail-"] main button.flat-action-button.flat-action-auto-update:hover:not(:disabled) {
+  background: #e67f1d !important;
+  border-color: #e67f1d !important;
+}
+
+:root[data-theme^="mail-"] main button.canada-action-add {
+  background: #5f27cd !important;
+  border-color: #5f27cd !important;
+  color: #ffffff !important;
+}
+
+:root[data-theme^="mail-"] main button.canada-action-add:hover {
+  background: #4f1fb0 !important;
+  border-color: #4f1fb0 !important;
+}
+
+:root[data-theme^="mail-"] main button.archive-lead-button {
+  background: #ee5253 !important;
+  border-color: #ee5253 !important;
+  color: #ffffff !important;
+  opacity: 1 !important;
+  box-shadow: 0 8px 18px rgba(238, 82, 83, 0.22);
+}
+
+:root[data-theme^="mail-"] main button.archive-lead-button:hover {
+  background: #d94546 !important;
+  border-color: #d94546 !important;
+  color: #ffffff !important;
+}
+
+:root[data-theme^="light-"] main button.admin-employees-primary-button,
+:root[data-theme^="mail-"] main button.admin-employees-primary-button,
+:root[data-theme^="light-"] main button.admin-employees-primary-button svg,
+:root[data-theme^="mail-"] main button.admin-employees-primary-button svg {
+  color: #ffffff !important;
+  stroke: currentColor !important;
+}
+
+:root[data-theme^="mail-"] main .admin-leads-page button:disabled {
+  opacity: 0.78 !important;
+}
+
+:root[data-theme^="mail-"] main .admin-leads-page button[class*="bg-[#"],
+:root[data-theme^="mail-"] main .admin-leads-page a[class*="bg-[#"] {
+  color: #ffffff !important;
+}
+
+:root[data-theme^="mail-"] main .admin-leads-page button[class*="bg-[#"] svg,
+:root[data-theme^="mail-"] main .admin-leads-page a[class*="bg-[#"] svg {
+  color: #ffffff !important;
+  stroke: currentColor;
+}
+
+:root[data-theme^="light-"] input::placeholder,
+:root[data-theme^="light-"] textarea::placeholder,
+:root[data-theme^="mail-"] input::placeholder,
+:root[data-theme^="mail-"] textarea::placeholder {
+  color: rgba(23, 32, 42, 0.48) !important;
+  opacity: 1;
+}
+
+:root[data-theme^="light-"] main,
+:root[data-theme^="mail-"] main {
+  color: #111827;
+}
+
+:root[data-theme^="light-"] main .theme-panel-bg,
+:root[data-theme^="light-"] main .theme-surface-bg,
+:root[data-theme^="light-"] main .theme-modal-bg,
+:root[data-theme^="light-"] main .bg-\[\#080b12\],
+:root[data-theme^="light-"] main .bg-\[\#090b13\],
+:root[data-theme^="light-"] main .bg-\[\#090b13\]\/80,
+:root[data-theme^="light-"] main .bg-\[\#0c1018\]\/70,
+:root[data-theme^="light-"] main .bg-\[\#0c1018\]\/80,
+:root[data-theme^="light-"] main .bg-\[\#0c1018\]\/85,
+:root[data-theme^="light-"] main .bg-\[\#0d1018\],
+:root[data-theme^="light-"] main .bg-\[\#0d111a\],
+:root[data-theme^="light-"] main .bg-\[\#101018\],
+:root[data-theme^="light-"] main .bg-\[\#10131b\],
+:root[data-theme^="light-"] main .bg-\[\#11141d\],
+:root[data-theme^="light-"] main .bg-\[\#11151f\],
+:root[data-theme^="light-"] main .bg-\[\#120f1f\],
+:root[data-theme^="light-"] main .bg-\[\#171a23\],
+:root[data-theme^="light-"] main .bg-\[\#1a1230\],
+:root[data-theme^="mail-"] main .theme-panel-bg,
+:root[data-theme^="mail-"] main .theme-surface-bg,
+:root[data-theme^="mail-"] main .theme-modal-bg,
+:root[data-theme^="mail-"] main .bg-\[\#080b12\],
+:root[data-theme^="mail-"] main .bg-\[\#090b13\],
+:root[data-theme^="mail-"] main .bg-\[\#090b13\]\/80,
+:root[data-theme^="mail-"] main .bg-\[\#0c1018\]\/70,
+:root[data-theme^="mail-"] main .bg-\[\#0c1018\]\/80,
+:root[data-theme^="mail-"] main .bg-\[\#0c1018\]\/85,
+:root[data-theme^="mail-"] main .bg-\[\#0d1018\],
+:root[data-theme^="mail-"] main .bg-\[\#0d111a\],
+:root[data-theme^="mail-"] main .bg-\[\#101018\],
+:root[data-theme^="mail-"] main .bg-\[\#10131b\],
+:root[data-theme^="mail-"] main .bg-\[\#11141d\],
+:root[data-theme^="mail-"] main .bg-\[\#11151f\],
+:root[data-theme^="mail-"] main .bg-\[\#120f1f\],
+:root[data-theme^="mail-"] main .bg-\[\#171a23\],
+:root[data-theme^="mail-"] main .bg-\[\#1a1230\] {
+  background-color: #ffffff !important;
+  color: #111827 !important;
+}
+
+:root[data-theme^="light-"] main input,
+:root[data-theme^="light-"] main textarea,
+:root[data-theme^="light-"] main select,
+:root[data-theme^="mail-"] main input,
+:root[data-theme^="mail-"] main textarea,
+:root[data-theme^="mail-"] main select {
+  color: #111827 !important;
+}
+
+:root[data-theme^="light-"] main input:not([type="checkbox"]):not([type="radio"]),
+:root[data-theme^="light-"] main textarea,
+:root[data-theme^="light-"] main select,
+:root[data-theme^="mail-"] main input:not([type="checkbox"]):not([type="radio"]),
+:root[data-theme^="mail-"] main textarea,
+:root[data-theme^="mail-"] main select {
+  background-color: #ffffff !important;
+  border-color: rgba(71, 85, 105, 0.3) !important;
+}
+
+:root[data-theme^="light-"] main table,
+:root[data-theme^="mail-"] main table {
+  color: #111827 !important;
+}
+
+:root[data-theme^="light-"] main thead,
+:root[data-theme^="mail-"] main thead {
+  background-color: #f8fafc !important;
+  color: #475569 !important;
+}
+
+:root[data-theme^="light-"] main tbody,
+:root[data-theme^="light-"] main tbody tr,
+:root[data-theme^="mail-"] main tbody,
+:root[data-theme^="mail-"] main tbody tr {
+  color: #334155 !important;
+}
+
+:root[data-theme^="light-"] main tbody tr:nth-child(odd),
+:root[data-theme^="mail-"] main tbody tr:nth-child(odd) {
+  background-color: rgba(248, 250, 252, 0.72) !important;
+}
+
+:root[data-theme^="light-"] main tbody tr:hover,
+:root[data-theme^="mail-"] main tbody tr:hover {
+  background-color: rgba(226, 232, 240, 0.72) !important;
+}
+
+:root[data-theme^="light-"] main button[class*="#842cff]/"],
+:root[data-theme^="light-"] main a[class*="#842cff]/"],
+:root[data-theme^="light-"] main .theme-primary-soft-bg,
+:root[data-theme^="mail-"] main button[class*="#842cff]/"],
+:root[data-theme^="mail-"] main a[class*="#842cff]/"],
+:root[data-theme^="mail-"] main .theme-primary-soft-bg {
+  color: var(--primary-dark) !important;
+}
+
+:root[data-theme^="light-"] main .text-\[\#842cff\],
+:root[data-theme^="light-"] main .text-\[\#9b5cff\],
+:root[data-theme^="light-"] main .text-\[\#b78cff\],
+:root[data-theme^="light-"] main .text-\[\#b994ff\],
+:root[data-theme^="light-"] main .text-\[\#c7a7ff\],
+:root[data-theme^="light-"] main .text-\[\#c8a8ff\],
+:root[data-theme^="light-"] main .text-\[\#cbb7ff\],
+:root[data-theme^="light-"] main .text-\[\#cdb8ff\],
+:root[data-theme^="light-"] main .text-\[\#d7c3ff\],
+:root[data-theme^="light-"] main .text-\[\#d7c5ff\],
+:root[data-theme^="light-"] main .text-\[\#d8c6ff\],
+:root[data-theme^="light-"] main .text-\[\#d8c8ff\],
+:root[data-theme^="light-"] main .text-\[\#d9c5ff\],
+:root[data-theme^="mail-"] main .text-\[\#842cff\],
+:root[data-theme^="mail-"] main .text-\[\#9b5cff\],
+:root[data-theme^="mail-"] main .text-\[\#b78cff\],
+:root[data-theme^="mail-"] main .text-\[\#b994ff\],
+:root[data-theme^="mail-"] main .text-\[\#c7a7ff\],
+:root[data-theme^="mail-"] main .text-\[\#c8a8ff\],
+:root[data-theme^="mail-"] main .text-\[\#cbb7ff\],
+:root[data-theme^="mail-"] main .text-\[\#cdb8ff\],
+:root[data-theme^="mail-"] main .text-\[\#d7c3ff\],
+:root[data-theme^="mail-"] main .text-\[\#d7c5ff\],
+:root[data-theme^="mail-"] main .text-\[\#d8c6ff\],
+:root[data-theme^="mail-"] main .text-\[\#d8c8ff\],
+:root[data-theme^="mail-"] main .text-\[\#d9c5ff\] {
+  color: var(--primary-dark) !important;
+}
+
+:root[data-theme^="light-"] main .text-\[\#9df6b7\],
+:root[data-theme^="light-"] main .text-emerald-50,
+:root[data-theme^="light-"] main .text-emerald-100,
+:root[data-theme^="light-"] main .text-emerald-100\/65,
+:root[data-theme^="light-"] main .text-emerald-100\/80,
+:root[data-theme^="light-"] main .text-emerald-200,
+:root[data-theme^="light-"] main .text-emerald-300,
+:root[data-theme^="light-"] main .text-green-100,
+:root[data-theme^="mail-"] main .text-\[\#9df6b7\],
+:root[data-theme^="mail-"] main .text-emerald-50,
+:root[data-theme^="mail-"] main .text-emerald-100,
+:root[data-theme^="mail-"] main .text-emerald-100\/65,
+:root[data-theme^="mail-"] main .text-emerald-100\/80,
+:root[data-theme^="mail-"] main .text-emerald-200,
+:root[data-theme^="mail-"] main .text-emerald-300,
+:root[data-theme^="mail-"] main .text-green-100 {
+  color: #047857 !important;
+}
+
+:root[data-theme^="light-"] main .text-red-50,
+:root[data-theme^="light-"] main .text-red-50\/60,
+:root[data-theme^="light-"] main .text-red-100,
+:root[data-theme^="light-"] main .text-red-100\/55,
+:root[data-theme^="light-"] main .text-red-100\/60,
+:root[data-theme^="light-"] main .text-red-100\/65,
+:root[data-theme^="light-"] main .text-red-100\/70,
+:root[data-theme^="light-"] main .text-red-100\/80,
+:root[data-theme^="light-"] main .text-red-200,
+:root[data-theme^="light-"] main .text-red-300,
+:root[data-theme^="mail-"] main .text-red-50,
+:root[data-theme^="mail-"] main .text-red-50\/60,
+:root[data-theme^="mail-"] main .text-red-100,
+:root[data-theme^="mail-"] main .text-red-100\/55,
+:root[data-theme^="mail-"] main .text-red-100\/60,
+:root[data-theme^="mail-"] main .text-red-100\/65,
+:root[data-theme^="mail-"] main .text-red-100\/70,
+:root[data-theme^="mail-"] main .text-red-100\/80,
+:root[data-theme^="mail-"] main .text-red-200,
+:root[data-theme^="mail-"] main .text-red-300 {
+  color: #b91c1c !important;
+}
+
+:root[data-theme^="light-"] main .text-yellow-50,
+:root[data-theme^="light-"] main .text-yellow-50\/65,
+:root[data-theme^="light-"] main .text-yellow-50\/75,
+:root[data-theme^="light-"] main .text-yellow-100,
+:root[data-theme^="light-"] main .text-yellow-100\/55,
+:root[data-theme^="light-"] main .text-yellow-100\/60,
+:root[data-theme^="light-"] main .text-yellow-100\/65,
+:root[data-theme^="light-"] main .text-yellow-100\/80,
+:root[data-theme^="light-"] main .text-yellow-100\/85,
+:root[data-theme^="light-"] main .text-yellow-200,
+:root[data-theme^="light-"] main .text-amber-200,
+:root[data-theme^="mail-"] main .text-yellow-50,
+:root[data-theme^="mail-"] main .text-yellow-50\/65,
+:root[data-theme^="mail-"] main .text-yellow-50\/75,
+:root[data-theme^="mail-"] main .text-yellow-100,
+:root[data-theme^="mail-"] main .text-yellow-100\/55,
+:root[data-theme^="mail-"] main .text-yellow-100\/60,
+:root[data-theme^="mail-"] main .text-yellow-100\/65,
+:root[data-theme^="mail-"] main .text-yellow-100\/80,
+:root[data-theme^="mail-"] main .text-yellow-100\/85,
+:root[data-theme^="mail-"] main .text-yellow-200,
+:root[data-theme^="mail-"] main .text-amber-200 {
+  color: #a16207 !important;
+}
+
+:root[data-theme^="light-"] main .text-sky-100,
+:root[data-theme^="light-"] main .text-blue-100,
+:root[data-theme^="mail-"] main .text-sky-100,
+:root[data-theme^="mail-"] main .text-blue-100 {
+  color: #0369a1 !important;
+}
+
+:root[data-theme^="light-"] main .text-violet-100,
+:root[data-theme^="light-"] main .text-purple-100,
+:root[data-theme^="mail-"] main .text-violet-100,
+:root[data-theme^="mail-"] main .text-purple-100 {
+  color: var(--primary-dark) !important;
+}
+
+:root[data-theme="light-command"] .theme-app-bg {
+  background: #eef3f9 !important;
+}
+
+:root[data-theme="light-command"] .theme-app-bg > .pointer-events-none.fixed.inset-0 {
+  display: none !important;
+}
+
+:root[data-theme="light-command"] main > .content-scroll {
+  background: linear-gradient(180deg, #eef3f9 0%, #f8fafc 100%) !important;
+}
+
+:root[data-theme="light-command"] .theme-shell-bg {
+  background: #ffffff !important;
+  border-color: rgba(148, 163, 184, 0.32) !important;
+  box-shadow: 12px 0 28px rgba(15, 23, 42, 0.08) !important;
+  backdrop-filter: none !important;
+}
+
+:root[data-theme="light-command"] .theme-header-bg {
+  background: rgba(255, 255, 255, 0.96) !important;
+  border-color: rgba(148, 163, 184, 0.34) !important;
+  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.06), 0 10px 30px rgba(15, 23, 42, 0.05) !important;
+}
+
+:root[data-theme="light-command"] .theme-sidebar-logo-dark {
+  display: none !important;
+}
+
+:root[data-theme="light-command"] .theme-sidebar-logo-light {
+  display: block !important;
+}
+
+:root[data-theme="light-command"] .admin-sidebar-nav-command,
+:root[data-theme="light-command"] .admin-sidebar-account-command {
+  display: block;
+}
+
+:root[data-theme="light-command"] .admin-sidebar-nav-legacy,
+:root[data-theme="light-command"] .admin-sidebar-account-legacy {
+  display: none;
+}
+
+:root[data-theme="light-command"] aside.theme-shell-bg,
+:root[data-theme="light-command"] aside.theme-shell-bg .text-white,
+:root[data-theme="light-command"] aside.theme-shell-bg .text-white\/80,
+:root[data-theme="light-command"] aside.theme-shell-bg .text-white\/75,
+:root[data-theme="light-command"] aside.theme-shell-bg .text-white\/70,
+:root[data-theme="light-command"] aside.theme-shell-bg .text-white\/65,
+:root[data-theme="light-command"] aside.theme-shell-bg .text-white\/60,
+:root[data-theme="light-command"] aside.theme-shell-bg .text-white\/55 {
+  color: #1e293b !important;
+}
+
+:root[data-theme="light-command"] aside.theme-shell-bg .text-white\/50,
+:root[data-theme="light-command"] aside.theme-shell-bg .text-white\/45,
+:root[data-theme="light-command"] aside.theme-shell-bg .text-white\/40,
+:root[data-theme="light-command"] aside.theme-shell-bg .text-white\/35,
+:root[data-theme="light-command"] aside.theme-shell-bg .text-white\/30,
+:root[data-theme="light-command"] aside.theme-shell-bg .text-white\/25 {
+  color: #64748b !important;
+}
+
+:root[data-theme="light-command"] aside.theme-shell-bg .border-white\/10,
+:root[data-theme="light-command"] aside.theme-shell-bg .border-white\/20 {
+  border-color: rgba(148, 163, 184, 0.28) !important;
+}
+
+:root[data-theme="light-command"] .admin-sidebar-section-title {
+  color: #94a3b8 !important;
+  letter-spacing: 0.12em !important;
+}
+
+:root[data-theme="light-command"] aside.theme-shell-bg nav a {
+  color: #334155 !important;
+  font-weight: 650;
+}
+
+:root[data-theme="light-command"] aside.theme-shell-bg .admin-sidebar-link {
+  position: relative;
+  min-height: 46px;
+  gap: 12px !important;
+  border-radius: 8px !important;
+  padding-left: 12px !important;
+  padding-right: 12px !important;
+  font-size: 15px;
+  line-height: 1.25;
+}
+
+:root[data-theme="light-command"] aside.theme-shell-bg .admin-sidebar-link::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 3px;
+  height: 0;
+  transform: translateY(-50%);
+  border-radius: 0 999px 999px 0;
+  background: var(--primary);
+  transition: height 160ms ease;
+}
+
+:root[data-theme="light-command"] aside.theme-shell-bg nav a:hover {
+  background: #f5f3ff !important;
+  color: var(--primary) !important;
+}
+
+:root[data-theme="light-command"] aside.theme-shell-bg nav a[aria-current="page"] {
+  position: relative;
+  background: #eef2ff !important;
+  color: var(--primary) !important;
+  box-shadow: none !important;
+}
+
+:root[data-theme="light-command"] aside.theme-shell-bg .admin-sidebar-link:hover::before,
+:root[data-theme="light-command"] aside.theme-shell-bg nav a[aria-current="page"]::before {
+  height: 22px;
+}
+
+:root[data-theme="light-command"] .admin-sidebar-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 7px;
+  background: #f1f5f9;
+  color: #64748b !important;
+  transition: background-color 160ms ease, color 160ms ease, box-shadow 160ms ease;
+}
+
+:root[data-theme="light-command"] aside.theme-shell-bg nav a:hover .admin-sidebar-icon,
+:root[data-theme="light-command"] aside.theme-shell-bg nav a[aria-current="page"] .admin-sidebar-icon {
+  background: #ffffff;
+  color: var(--primary) !important;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
+}
+
+:root[data-theme="light-command"] aside.theme-shell-bg nav a svg {
+  color: #64748b !important;
+  stroke: currentColor;
+}
+
+:root[data-theme="light-command"] aside.theme-shell-bg nav a:hover svg,
+:root[data-theme="light-command"] aside.theme-shell-bg nav a[aria-current="page"] svg {
+  color: var(--primary) !important;
+}
+
+:root[data-theme="light-command"] .admin-sidebar-profile {
+  background: #f8fafc !important;
+  border-color: rgba(226, 232, 240, 0.95) !important;
+}
+
+:root[data-theme="light-command"] .admin-sidebar-profile .text-white {
+  color: #1e293b !important;
+}
+
+:root[data-theme="light-command"] .admin-sidebar-profile .text-white\/45 {
+  color: #64748b !important;
+}
+
+:root[data-theme="light-command"] .admin-sidebar-logout {
+  justify-content: center;
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  background: #ffffff !important;
+  color: #334155 !important;
+  font-weight: 650;
+  box-shadow: none !important;
+}
+
+:root[data-theme="light-command"] .admin-sidebar-logout:hover {
+  border-color: rgba(254, 202, 202, 0.95);
+  background: #fff1f2 !important;
+  color: #be123c !important;
+}
+
+:root[data-theme="light-command"] .admin-sidebar-logout:hover svg {
+  color: #be123c !important;
+}
+
+:root[data-theme="light-command"] main .theme-surface-bg,
+:root[data-theme="light-command"] main .theme-panel-bg,
+:root[data-theme="light-command"] main .theme-modal-bg {
+  background: #ffffff !important;
+  border-color: rgba(148, 163, 184, 0.34) !important;
+  box-shadow: 0 12px 26px rgba(15, 23, 42, 0.08) !important;
+}
+
+:root[data-theme="light-command"] main section.rounded-lg.border,
+:root[data-theme="light-command"] main article.rounded-lg.border {
+  border-color: rgba(148, 163, 184, 0.38) !important;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08) !important;
+}
+
+:root[data-theme="light-command"] .dashboard-accent-green {
+  --dashboard-accent: #16a34a;
+  --dashboard-accent-soft: #ecfdf5;
+  --dashboard-accent-border: #86efac;
+}
+
+:root[data-theme="light-command"] .dashboard-accent-blue {
+  --dashboard-accent: #2563eb;
+  --dashboard-accent-soft: #eff6ff;
+  --dashboard-accent-border: #93c5fd;
+}
+
+:root[data-theme="light-command"] .dashboard-accent-orange {
+  --dashboard-accent: #d97706;
+  --dashboard-accent-soft: #fff7ed;
+  --dashboard-accent-border: #fdba74;
+}
+
+:root[data-theme="light-command"] .dashboard-accent-purple {
+  --dashboard-accent: #7c3aed;
+  --dashboard-accent-soft: #f5f3ff;
+  --dashboard-accent-border: #c4b5fd;
+}
+
+:root[data-theme="light-command"] .dashboard-accent-indigo {
+  --dashboard-accent: #8e44ad;
+  --dashboard-accent-soft: #f4ecf7;
+  --dashboard-accent-border: #d2b4de;
+}
+
+:root[data-theme="light-command"] .dashboard-accent-teal {
+  --dashboard-accent: #1abc9c;
+  --dashboard-accent-soft: #e8f8f5;
+  --dashboard-accent-border: #a3e4d7;
+}
+
+:root[data-theme="light-command"] .admin-dashboard-page {
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+:root[data-theme="light-command"] .admin-dashboard-page .dashboard-kpi-card,
+:root[data-theme="light-command"] .admin-dashboard-page .dashboard-panel-accent,
+:root[data-theme="light-command"] .admin-dashboard-page > .grid section.rounded-lg.border {
+  background: #ffffff !important;
+  border-color: var(--dashboard-accent-border, rgba(148, 163, 184, 0.48)) !important;
+  box-shadow:
+    0 18px 38px rgba(15, 23, 42, 0.13),
+    0 2px 6px rgba(15, 23, 42, 0.08) !important;
+}
+
+:root[data-theme="light-command"] .admin-dashboard-page .dashboard-kpi-card {
+  padding: 1.25rem !important;
+}
+
+:root[data-theme="light-command"] .dashboard-kpi-card {
+  border-left-width: 6px !important;
+  border-left-style: solid !important;
+  border-left-color: var(--dashboard-accent) !important;
+}
+
+:root[data-theme="light-command"] .admin-dashboard-page .dashboard-kpi-card.dashboard-accent-green {
+  border-left: 6px solid #16a34a !important;
+}
+
+:root[data-theme="light-command"] .admin-dashboard-page .dashboard-kpi-card.dashboard-accent-blue {
+  border-left: 6px solid #2563eb !important;
+}
+
+:root[data-theme="light-command"] .admin-dashboard-page .dashboard-kpi-card.dashboard-accent-orange {
+  border-left: 6px solid #d97706 !important;
+}
+
+:root[data-theme="light-command"] .admin-dashboard-page .dashboard-kpi-card.dashboard-accent-purple {
+  border-left: 6px solid #7c3aed !important;
+}
+
+:root[data-theme="light-command"] .dashboard-panel-accent {
+  border-top-width: 6px !important;
+  border-top-color: var(--dashboard-accent) !important;
+}
+
+:root[data-theme="light-command"] .dashboard-accent-icon {
+  width: 42px !important;
+  height: 42px !important;
+  background: var(--dashboard-accent-soft) !important;
+  border-color: var(--dashboard-accent-border) !important;
+  color: var(--dashboard-accent) !important;
+  font-size: 22px !important;
+}
+
+:root[data-theme="light-command"] .admin-dashboard-page h2 {
+  font-size: 1.95rem !important;
+  line-height: 2.25rem !important;
+  font-weight: 750 !important;
+  letter-spacing: 0 !important;
+}
+
+:root[data-theme="light-command"] .admin-dashboard-page h3 {
+  font-size: 1.15rem !important;
+  line-height: 1.55rem !important;
+  font-weight: 750 !important;
+  letter-spacing: 0 !important;
+}
+
+:root[data-theme="light-command"] .admin-dashboard-page .dashboard-kpi-card .text-2xl {
+  font-size: 2rem !important;
+  line-height: 2.25rem !important;
+  font-weight: 750 !important;
+}
+
+:root[data-theme="light-command"] .admin-dashboard-page .dashboard-kpi-card .text-xs {
+  font-size: 0.82rem !important;
+}
+
+:root[data-theme="light-command"] .admin-dashboard-page .dashboard-kpi-card .text-sm,
+:root[data-theme="light-command"] .admin-dashboard-page table {
+  font-size: 0.95rem !important;
+}
+
+:root[data-theme="light-command"] .admin-dashboard-page thead {
+  font-size: 0.72rem !important;
+}
+
+:root[data-theme="light-command"] main table thead,
+:root[data-theme="light-command"] main thead {
+  background: #f8fafc !important;
+  color: #475569 !important;
+}
+
+:root[data-theme="light-command"] main tbody tr:nth-child(odd) {
+  background: #f8fafc !important;
+}
+
+:root[data-theme="light-command"] main tbody tr:hover {
+  background: #eef2ff !important;
+}
+
+:root[data-theme="light-command"] .content-scroll.is-scrolling,
+:root[data-theme="light-command"] .content-scroll:hover,
+:root[data-theme="light-command"] .content-scroll:focus-within {
+  scrollbar-color: rgba(100, 116, 139, 0.48) transparent;
+}
+
+:root[data-theme="light-command"] .content-scroll.is-scrolling::-webkit-scrollbar-thumb,
+:root[data-theme="light-command"] .content-scroll:hover::-webkit-scrollbar-thumb,
+:root[data-theme="light-command"] .content-scroll:focus-within::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.48);
 }
 
 .content-scroll {
@@ -41,6 +1596,31 @@
   background: rgba(255, 255, 255, 0.18);
 }
 
+.attendance-history-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(15, 23, 42, 0.42) rgba(226, 232, 240, 0.9);
+}
+
+.attendance-history-scroll::-webkit-scrollbar {
+  width: 0.65rem;
+  height: 0.65rem;
+}
+
+.attendance-history-scroll::-webkit-scrollbar-track {
+  border-radius: 999px;
+  background: rgba(226, 232, 240, 0.9);
+}
+
+.attendance-history-scroll::-webkit-scrollbar-thumb {
+  border: 2px solid rgba(226, 232, 240, 0.9);
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.42);
+}
+
+.attendance-history-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(15, 23, 42, 0.62);
+}
+
 @keyframes modal-backdrop-in {
   from {
     opacity: 0;
@@ -61,12 +1641,66 @@
   }
 }
 
+@keyframes accordion-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(-0.35rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .modal-backdrop-enter {
   animation: modal-backdrop-in 160ms ease-out both;
 }
 
 .modal-panel-enter {
   animation: modal-panel-in 180ms ease-out both;
+}
+
+.accordion-panel-enter {
+  animation: accordion-panel-in 180ms ease-out both;
+}
+
+.login-screen .login-code-field {
+  background-color: rgba(3, 5, 12, 0.72) !important;
+  border-color: rgba(132, 44, 255, 0.34) !important;
+}
+
+.login-screen .login-code-input,
+.login-screen .login-code-input:focus {
+  background-color: transparent !important;
+  border-color: transparent !important;
+  color: #ffffff !important;
+  box-shadow: none !important;
+}
+
+.login-screen .login-code-input::placeholder {
+  color: #8b8a94 !important;
+}
+
+:root[data-theme^="light-"] main.login-screen input.login-code-input:not([type="checkbox"]):not([type="radio"]),
+:root[data-theme^="mail-"] main.login-screen input.login-code-input:not([type="checkbox"]):not([type="radio"]) {
+  background-color: transparent !important;
+  border-color: transparent !important;
+  color: #ffffff !important;
+  box-shadow: none !important;
+}
+
+:root[data-theme^="light-"] main.login-screen .login-code-input::placeholder,
+:root[data-theme^="mail-"] main.login-screen .login-code-input::placeholder {
+  color: #8b8a94 !important;
+}
+
+.login-screen .login-code-input:-webkit-autofill,
+.login-screen .login-code-input:-webkit-autofill:hover,
+.login-screen .login-code-input:-webkit-autofill:focus {
+  -webkit-text-fill-color: #ffffff !important;
+  caret-color: #ffffff !important;
+  box-shadow: 0 0 0 1000px rgba(3, 5, 12, 0.92) inset !important;
+  transition: background-color 9999s ease-out 0s;
 }
 
 @media print {

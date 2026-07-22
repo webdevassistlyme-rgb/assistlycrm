@@ -1,5 +1,8 @@
 const backendPort = "4000";
-const serverHost = "76.13.185.238";
+
+function isIpAddress(hostname: string) {
+  return /^(?:\d{1,3}\.){3}\d{1,3}$/.test(hostname);
+}
 
 function getBackendOrigin() {
   if (typeof window === "undefined") {
@@ -8,9 +11,12 @@ function getBackendOrigin() {
 
   const { protocol, hostname } = window.location;
   const isLocal = hostname === "localhost" || hostname === "127.0.0.1";
-  const backendHost = isLocal ? hostname : serverHost;
 
-  return `${protocol}//${backendHost}:${backendPort}`;
+  if (!isLocal && !isIpAddress(hostname)) {
+    return window.location.origin;
+  }
+
+  return `${protocol}//${hostname}:${backendPort}`;
 }
 
 export const backendOrigin = getBackendOrigin();

@@ -1,6 +1,7 @@
-import { Schema, model } from "mongoose";
+import { Schema } from "mongoose";
+import { tenantModel } from "../config/tenancy";
 
-export type KnowledgeBaseEntryType = "Product" | "FAQ";
+export type KnowledgeBaseEntryType = "Product" | "FAQ" | "Article";
 export type KnowledgeBaseStatus = "Active" | "Draft" | "Archived";
 
 export type KnowledgeBaseEntryDocument = {
@@ -28,7 +29,7 @@ export type KnowledgeBaseEntryDocument = {
 
 const knowledgeBaseEntrySchema = new Schema<KnowledgeBaseEntryDocument>(
   {
-    entryType: { type: String, enum: ["Product", "FAQ"], required: true },
+    entryType: { type: String, enum: ["Product", "FAQ", "Article"], required: true },
     title: { type: String, trim: true, default: "" },
     category: { type: String, trim: true, default: "" },
     description: { type: String, trim: true, default: "" },
@@ -62,4 +63,4 @@ const knowledgeBaseEntrySchema = new Schema<KnowledgeBaseEntryDocument>(
   { timestamps: true }
 );
 
-export const KnowledgeBaseEntry = model<KnowledgeBaseEntryDocument>("KnowledgeBaseEntry", knowledgeBaseEntrySchema);
+export const KnowledgeBaseEntry = tenantModel<KnowledgeBaseEntryDocument>("KnowledgeBaseEntry", knowledgeBaseEntrySchema);

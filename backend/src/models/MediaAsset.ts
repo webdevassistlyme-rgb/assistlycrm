@@ -1,4 +1,5 @@
-import { Schema, model } from "mongoose";
+import { Schema } from "mongoose";
+import { tenantModel } from "../config/tenancy";
 
 export type MediaAssetType = "Image" | "Video";
 
@@ -9,6 +10,7 @@ export type MediaAssetDocument = {
   assetType: MediaAssetType;
   branch: string;
   size: number;
+  data?: Buffer;
   isArchived: boolean;
 };
 
@@ -20,9 +22,10 @@ const mediaAssetSchema = new Schema<MediaAssetDocument>(
     assetType: { type: String, enum: ["Image", "Video"], required: true },
     branch: { type: String, trim: true, default: "" },
     size: { type: Number, default: 0 },
+    data: { type: Buffer, select: false },
     isArchived: { type: Boolean, default: false },
   },
   { timestamps: true }
 );
 
-export const MediaAsset = model<MediaAssetDocument>("MediaAsset", mediaAssetSchema);
+export const MediaAsset = tenantModel<MediaAssetDocument>("MediaAsset", mediaAssetSchema);

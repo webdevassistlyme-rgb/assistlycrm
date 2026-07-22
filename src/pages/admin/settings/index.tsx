@@ -1,7 +1,7 @@
-import type { FormEvent } from "react";
-import { useState } from "react";
+import { Fragment, type FormEvent } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FiAlertTriangle, FiArchive, FiCheck, FiChevronDown, FiCreditCard, FiEdit2, FiGitBranch, FiPlus, FiSave, FiShield, FiSliders, FiTag, FiTool, FiX } from "react-icons/fi";
+import { FiAlertTriangle, FiArchive, FiCheck, FiChevronDown, FiCreditCard, FiDroplet, FiEdit2, FiGitBranch, FiPlus, FiSave, FiShield, FiSliders, FiTag, FiTool, FiX } from "react-icons/fi";
 import AdminLayout from "../adminLayout";
 import { archiveRole, createRole, getRoles, updateRole, type Role, type RoleInput } from "../../../api/roles";
 import {
@@ -22,26 +22,34 @@ import {
     type ProductCategory,
     type ProductCategoryInput,
 } from "../../../api/productCategories";
+import { createBusiness, getBusinesses, updateBusinessName } from "../../../api/businesses";
 import {
     currencyOptions,
+    attendanceTimeZoneOptions,
     getSystemSettings,
     payrollBillingCycleOptions,
     updateSystemSettings,
     type CurrencyCode,
     type PayrollBillingCycle,
 } from "../../../api/systemSettings";
+import { DataTablePagination } from "../../../components/admin/DataTable";
+import { setAppTheme } from "../../../components/ThemeProvider";
+import { emitToast } from "../../../components/ToastProvider";
+import { themeOptions, type ThemeKey } from "../../../lib/themes";
 
-type SettingsTab = "Roles" | "Branches" | "Tools" | "Product Categories" | "Features" | "System";
+type SettingsTab = "Businesses" | "Departments" | "Branches" | "Tools" | "Product Categories" | "Features" | "Themes" | "System";
 
-const emptyRole: RoleInput = { name: "", description: "" };
+const emptyRole: RoleInput = { department: "", name: "", branch: "All branches", description: "" };
 const emptyBranch: BranchInput = { name: "", company: "Assistly", location: "" };
 const emptyTool: ToolInput = { name: "", link: "", branches: [] };
 const emptyProductCategory: ProductCategoryInput = { name: "", description: "" };
+const systemSettingCount = currencyOptions.length + 13;
 
 export default function AdminSettings() {
     const queryClient = useQueryClient();
-    const [activeTab, setActiveTab] = useState<SettingsTab>("Roles");
+    const [activeTab, setActiveTab] = useState<SettingsTab>("Businesses");
     const [isRoleModalOpen, setIsRoleModalOpen] = useState(false);
+    const [isBusinessModalOpen, setIsBusinessModalOpen] = useState(false);
     const [isBranchModalOpen, setIsBranchModalOpen] = useState(false);
     const [isToolModalOpen, setIsToolModalOpen] = useState(false);
     const [isProductCategoryModalOpen, setIsProductCategoryModalOpen] = useState(false);
@@ -51,11 +59,14 @@ export default function AdminSettings() {
     const [editingToolId, setEditingToolId] = useState<string | null>(null);
     const [editingProductCategoryId, setEditingProductCategoryId] = useState<string | null>(null);
     const [deleteTarget, setDeleteTarget] = useState<{ label: string; type: SettingsTab; onConfirm: () => void } | null>(null);
-    const [deleteStep, setDeleteStep] = useState<1 | 2>(1);
     const [roleForm, setRoleForm] = useState<RoleInput>(emptyRole);
     const [branchForm, setBranchForm] = useState<BranchInput>(emptyBranch);
     const [toolForm, setToolForm] = useState<ToolInput>(emptyTool);
     const [productCategoryForm, setProductCategoryForm] = useState<ProductCategoryInput>(emptyProductCategory);
+    const [businessForm, setBusinessForm] = useState({ name: "" });
+    const [businessNameDrafts, setBusinessNameDrafts] = useState<Record<string, string>>({});
+    const [page, setPage] = useState(1);
+    const [pageSize, setPageSize] = useState(10);
 
     const { data: roles = [], isLoading: rolesLoading, isError: rolesError } = useQuery({
         queryKey: ["roles"],
@@ -77,16 +88,28 @@ export default function AdminSettings() {
         queryKey: ["features"],
         queryFn: getFeatures,
     });
+    const { data: businesses = [], isLoading: businessesLoading, isError: businessesError } = useQuery({
+        queryKey: ["businesses"],
+        queryFn: getBusinesses,
+    });
     const { data: systemSettings, isLoading: systemSettingsLoading, isError: systemSettingsError } = useQuery({
         queryKey: ["system-settings"],
         queryFn: getSystemSettings,
     });
+    const cutoffDay = (value: number | undefined, fallback: number) => Math.min(Math.max(Math.round(value ?? fallback), 1), 31);
+    const firstCutoffStartDay = cutoffDay(systemSettings?.payrollFirstCutoffStartDay, 6);
+    const firstCutoffEndDay = cutoffDay(systemSettings?.payrollFirstCutoffEndDay, 20);
+    const firstCutoffPayDay = cutoffDay(systemSettings?.payrollFirstCutoffPayDay, 25);
+    const secondCutoffStartDay = cutoffDay(systemSettings?.payrollSecondCutoffStartDay, 21);
+    const secondCutoffEndDay = cutoffDay(systemSettings?.payrollSecondCutoffEndDay, 5);
+    const secondCutoffPayDay = cutoffDay(systemSettings?.payrollSecondCutoffPayDay, 10);
 
     const invalidateRoles = () => queryClient.invalidateQueries({ queryKey: ["roles"] });
     const invalidateBranches = () => queryClient.invalidateQueries({ queryKey: ["branches"] });
     const invalidateTools = () => queryClient.invalidateQueries({ queryKey: ["tools"] });
     const invalidateProductCategories = () => queryClient.invalidateQueries({ queryKey: ["product-categories"] });
     const invalidateFeatures = () => queryClient.invalidateQueries({ queryKey: ["features"] });
+    const invalidateBusinesses = () => queryClient.invalidateQueries({ queryKey: ["businesses"] });
     const invalidateSystemSettings = () => queryClient.invalidateQueries({ queryKey: ["system-settings"] });
 
     const createRoleMutation = useMutation({ mutationFn: createRole, onSuccess: invalidateRoles });
@@ -122,10 +145,50 @@ export default function AdminSettings() {
             }),
         onSuccess: invalidateFeatures,
     });
+    const updateBusinessNameMutation = useMutation({
+        mutationFn: ({ id, name }: { id: string; name: string }) => updateBusinessName(id, name),
+        onSuccess: (business) => {
+            setBusinessNameDrafts((drafts) => ({ ...drafts, [business.id]: business.name }));
+            invalidateBusinesses();
+        },
+    });
+    const createBusinessMutation = useMutation({
+        mutationFn: ({ name }: { name: string }) => createBusiness(name),
+        onSuccess: (business) => {
+            setBusinessNameDrafts((drafts) => ({ ...drafts, [business.id]: business.name }));
+            invalidateBusinesses();
+            setIsBusinessModalOpen(false);
+            setBusinessForm({ name: "" });
+            emitToast({ tone: "success", message: `${business.name} was created.` });
+        },
+        onError: (error) => {
+            emitToast({
+                tone: "error",
+                message: error instanceof Error ? error.message : "Unable to create business.",
+            });
+        },
+    });
     const updateSystemSettingsMutation = useMutation({
         mutationFn: updateSystemSettings,
-        onSuccess: invalidateSystemSettings,
+        onSuccess: (settings) => {
+            setAppTheme(settings.themeKey, { userOverride: false });
+            invalidateSystemSettings();
+        },
     });
+
+    useEffect(() => {
+        setBusinessNameDrafts(Object.fromEntries(businesses.map((business) => [business.id, business.name])));
+    }, [businesses]);
+
+    const openAddBusinessModal = () => {
+        setBusinessForm({ name: "" });
+        setIsBusinessModalOpen(true);
+    };
+
+    const closeBusinessModal = () => {
+        setIsBusinessModalOpen(false);
+        setBusinessForm({ name: "" });
+    };
 
     const openAddRoleModal = () => {
         setEditingRoleId(null);
@@ -135,7 +198,12 @@ export default function AdminSettings() {
 
     const openEditRoleModal = (role: Role) => {
         setEditingRoleId(role._id);
-        setRoleForm({ name: role.name, description: role.description });
+        setRoleForm({
+            department: role.department || "General",
+            name: role.name,
+            branch: role.branch || "All branches",
+            description: role.description,
+        });
         setIsRoleModalOpen(true);
     };
 
@@ -203,7 +271,7 @@ export default function AdminSettings() {
     const handleSaveRole = (event: FormEvent<HTMLFormElement>) => {
         event.preventDefault();
 
-        if (!roleForm.name.trim()) return;
+        if (!roleForm.department.trim() || !roleForm.name.trim()) return;
 
         if (editingRoleId) {
             updateRoleMutation.mutate({ id: editingRoleId, role: roleForm });
@@ -256,8 +324,30 @@ export default function AdminSettings() {
         closeProductCategoryModal();
     };
 
+    const handleCreateBusiness = (event: FormEvent<HTMLFormElement>) => {
+        event.preventDefault();
+
+        const name = businessForm.name.trim();
+
+        if (!name) return;
+
+        createBusinessMutation.mutate({ name });
+    };
+
+    const handleSaveBusinessName = (businessId: string) => {
+        const business = businesses.find((item) => item.id === businessId);
+        const name = (businessNameDrafts[businessId] || "").trim();
+
+        if (!business || !name || name === business.name) {
+            return;
+        }
+
+        updateBusinessNameMutation.mutate({ id: businessId, name });
+    };
+
     const openCurrentAddModal = () => {
-        if (activeTab === "Roles") openAddRoleModal();
+        if (activeTab === "Businesses") openAddBusinessModal();
+        if (activeTab === "Departments") openAddRoleModal();
         if (activeTab === "Branches") openAddBranchModal();
         if (activeTab === "Tools") openAddToolModal();
         if (activeTab === "Product Categories") openAddProductCategoryModal();
@@ -265,12 +355,10 @@ export default function AdminSettings() {
 
     const openDeletePrompt = (target: { label: string; type: SettingsTab; onConfirm: () => void }) => {
         setDeleteTarget(target);
-        setDeleteStep(1);
     };
 
     const closeDeletePrompt = () => {
         setDeleteTarget(null);
-        setDeleteStep(1);
     };
 
     const confirmDelete = () => {
@@ -278,51 +366,115 @@ export default function AdminSettings() {
         closeDeletePrompt();
     };
 
+    const paginateRows = <T,>(rows: T[]) => rows.slice((page - 1) * pageSize, page * pageSize);
+    const activeTotalItems =
+        activeTab === "Businesses"
+            ? businesses.length
+            : activeTab === "Departments"
+                ? roles.length
+                : activeTab === "Branches"
+                    ? branches.length
+                    : activeTab === "Tools"
+                        ? tools.length
+                        : activeTab === "Product Categories"
+                            ? productCategories.length
+                            : activeTab === "Features"
+                                ? features.length
+                                : activeTab === "Themes"
+                                    ? themeOptions.length
+                                    : systemSettingCount;
+    const branchGroupNames = branches.length ? branches.map((branch) => branch.name) : ["Branches"];
+    const expandedRoles = roles.flatMap((role) => {
+        if (role.branch && role.branch !== "All branches") return [{ groupBranch: role.branch, role }];
+        return branchGroupNames.map((groupBranch) => ({ groupBranch, role }));
+    });
+    const sortedRoles = [...expandedRoles].sort((left, right) => {
+        const leftBranch = left.groupBranch;
+        const rightBranch = right.groupBranch;
+        return (
+            leftBranch.localeCompare(rightBranch) ||
+            (left.role.department || "General").localeCompare(right.role.department || "General") ||
+            left.role.name.localeCompare(right.role.name)
+        );
+    });
+    const visibleRoles = paginateRows(sortedRoles);
+    const groupedVisibleRoles = visibleRoles.reduce<Array<{ branch: string; roles: Array<{ role: Role; displayBranch: string }> }>>((groups, item) => {
+        const branch = item.groupBranch;
+        const existingGroup = groups.find((group) => group.branch === branch);
+        const roleItem = { role: item.role, displayBranch: item.role.branch === "All branches" || !item.role.branch ? item.groupBranch : item.role.branch };
+
+        if (existingGroup) {
+            existingGroup.roles.push(roleItem);
+        } else {
+            groups.push({ branch, roles: [roleItem] });
+        }
+
+        return groups;
+    }, []);
+    const visibleBranches = paginateRows(branches);
+    const visibleBusinesses = paginateRows(businesses);
+    const visibleTools = paginateRows(tools);
+    const visibleProductCategories = paginateRows(productCategories);
+    const visibleFeatures = paginateRows(features);
+    const visibleThemes = paginateRows(themeOptions);
+
+    useEffect(() => {
+        setPage(1);
+    }, [activeTab]);
+
+    useEffect(() => {
+        setPage((currentPage) => Math.min(currentPage, Math.max(1, Math.ceil(activeTotalItems / pageSize))));
+    }, [activeTotalItems, pageSize]);
+
     return (
         <AdminLayout>
-            <section className="min-h-[calc(100vh-8.5rem)] rounded-lg border border-white/10 bg-[#090b13]/80">
+            <section className="theme-surface-bg min-h-[calc(100vh-8.5rem)] rounded-lg border border-white/10">
                 <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 px-5 py-4">
                     <div>
                         <p className="text-xs font-medium uppercase tracking-[0.16em] text-white/35">Admin Settings</p>
                         <h2 className="mt-1 text-xl font-semibold text-white">{activeTab}</h2>
                     </div>
 
-                    {activeTab !== "Features" && activeTab !== "System" && (
+                    {activeTab !== "Features" && activeTab !== "Themes" && activeTab !== "System" && (
                         <button
-                            className="flex h-10 items-center gap-2 rounded-lg bg-[linear-gradient(135deg,#842cff,#4a0ebd)] px-4 text-sm font-semibold text-white transition hover:brightness-110 focus:outline-none focus:ring-2 focus:ring-[#842cff]/60"
+                            className="theme-primary-bg flex h-10 items-center gap-2 rounded-lg px-4 text-sm font-semibold text-white transition hover:brightness-110 focus:outline-none focus:ring-2 focus:ring-[color-mix(in_srgb,var(--primary)_60%,transparent)]"
                             type="button"
                             onClick={openCurrentAddModal}
                         >
                             <FiPlus className="size-4" aria-hidden="true" />
-                            Add {activeTab === "Roles" ? "Role" : activeTab === "Branches" ? "Branch" : activeTab === "Tools" ? "Tool" : "Category"}
+                            Add {activeTab === "Businesses" ? "Business" : activeTab === "Departments" ? "Department" : activeTab === "Branches" ? "Branch" : activeTab === "Tools" ? "Tool" : "Category"}
                         </button>
                     )}
                 </div>
 
-                <div className="border-b border-white/10 px-4 pt-3">
+                <div className="border-b border-slate-300 px-4 pt-3">
                     <div className="flex gap-2">
-                        {(["Roles", "Branches", "Tools", "Product Categories", "Features", "System"] as const).map((tab) => {
+                        {(["Businesses", "Branches", "Departments", "Tools", "Product Categories", "Features", "Themes", "System"] as const).map((tab) => {
                             const Icon =
-                                tab === "Roles"
-                                    ? FiShield
-                                    : tab === "Branches"
-                                      ? FiGitBranch
-                                      : tab === "Tools"
-                                        ? FiTool
-                                        : tab === "Product Categories"
-                                          ? FiTag
-                                          : tab === "Features"
-                                            ? FiSliders
-                                            : FiCreditCard;
+                                tab === "Businesses"
+                                    ? FiGitBranch
+                                    : tab === "Departments"
+                                        ? FiShield
+                                        : tab === "Branches"
+                                            ? FiGitBranch
+                                            : tab === "Tools"
+                                                ? FiTool
+                                                : tab === "Product Categories"
+                                                    ? FiTag
+                                                    : tab === "Features"
+                                                        ? FiSliders
+                                                        : tab === "Themes"
+                                                            ? FiDroplet
+                                                            : FiCreditCard;
 
                             return (
                                 <button
                                     key={tab}
                                     className={[
-                                        "flex h-11 items-center gap-2 px-4 text-sm font-semibold transition",
+                                        "flex h-11 items-center gap-2 px-4 text-sm font-semibold !text-black transition hover:!text-black",
                                         activeTab === tab
-                                            ? "border-b-2 border-[#842cff] bg-[#842cff]/12 text-white"
-                                            : "text-white/55 hover:text-white",
+                                            ? "theme-primary-soft-bg border-b-2 border-[var(--primary)]"
+                                            : "hover:bg-slate-100",
                                     ].join(" ")}
                                     type="button"
                                     onClick={() => setActiveTab(tab)}
@@ -335,366 +487,813 @@ export default function AdminSettings() {
                     </div>
                 </div>
 
-                <div className="grid gap-2.5 p-4 md:grid-cols-3">
-                    {(activeTab === "Roles"
-                        ? [
-                              ["Roles", roles.length.toString()],
-                              ["Default Role", roles[0]?.name || "None"],
-                              ["Source", "MongoDB"],
-                          ]
-                        : activeTab === "Branches"
-                          ? [
-                              ["Branches", branches.length.toString()],
-                              ["Default Branch", branches[0]?.name || "None"],
-                              ["Source", "MongoDB"],
-                          ]
-                          : activeTab === "Tools"
-                            ? [
-                              ["Tools", tools.length.toString()],
-                              ["Default Tool", tools[0]?.name || "None"],
-                              ["Source", "MongoDB"],
-                          ]
-                            : activeTab === "Product Categories"
-                              ? [
-                                  ["Categories", productCategories.length.toString()],
-                                  ["Default Category", productCategories[0]?.name || "None"],
-                                  ["Source", "MongoDB"],
-                              ]
-                            : activeTab === "Features"
-                              ? [
-                                ["Features", features.length.toString()],
-                                ["Admin Enabled", features.filter((feature) => feature.adminEnabled).length.toString()],
-                                ["Employee Enabled", features.filter((feature) => feature.employeeEnabled).length.toString()],
-                            ]
-                              : [
-                                ["Currency", systemSettings?.currencyCode || "USD"],
-                                ["Cycle", systemSettings?.payrollBillingCycle || "Monthly"],
-                                ["Run Day", `Day ${systemSettings?.payrollRunDay ?? 15}`],
-                            ]
-                    ).map(([label, value]) => (
-                        <div key={label} className="rounded-lg border border-white/10 bg-white/[0.04] px-3.5 py-3">
-                            <p className="text-[0.68rem] font-medium uppercase tracking-[0.12em] text-white/35">{label}</p>
-                            <p className="mt-1 truncate text-xl font-semibold text-white">{value}</p>
-                        </div>
-                    ))}
-                </div>
-
-                <div className="px-4 pb-4">
-                    <div className="flex h-[calc(100vh-25rem)] min-h-[26rem] flex-col overflow-hidden rounded-lg border border-white/10 bg-[#090b13]/80 shadow-2xl shadow-black/20">
-                        <div className="content-scroll min-h-0 flex-1 overflow-auto bg-[linear-gradient(to_bottom,#11151f_0,#11151f_3.15rem,transparent_3.15rem)] [scrollbar-gutter:stable]">
-                        <table className="w-full min-w-[62rem] table-fixed border-separate border-spacing-0 text-left">
-                            <thead className="sticky top-0 z-10 bg-[#11151f] text-[0.74rem] font-medium text-white/65 shadow-[12px_0_0_#11151f]">
-                                {activeTab === "Roles" ? (
-                                    <tr>
-                                        <th className="w-[28%] px-5 py-4">Role</th>
-                                        <th className="w-[56%] px-5 py-4">Description</th>
-                                        <th className="w-[16%] px-5 py-4 text-right">Actions</th>
-                                    </tr>
-                                ) : activeTab === "Branches" ? (
-                                    <tr>
-                                        <th className="w-[24%] px-5 py-4">Branch</th>
-                                        <th className="w-[24%] px-5 py-4">Company</th>
-                                        <th className="w-[36%] px-5 py-4">Location</th>
-                                        <th className="w-[16%] px-5 py-4 text-right">Actions</th>
-                                    </tr>
-                                ) : activeTab === "Tools" ? (
-                                    <tr>
-                                        <th className="w-[22%] px-5 py-4">Tool</th>
-                                        <th className="w-[34%] px-5 py-4">Link</th>
-                                        <th className="w-[28%] px-5 py-4">Branches</th>
-                                        <th className="w-[16%] px-5 py-4 text-right">Actions</th>
-                                    </tr>
-                                ) : activeTab === "Product Categories" ? (
-                                    <tr>
-                                        <th className="w-[28%] px-5 py-4">Category</th>
-                                        <th className="w-[56%] px-5 py-4">Description</th>
-                                        <th className="w-[16%] px-5 py-4 text-right">Actions</th>
-                                    </tr>
-                                ) : activeTab === "Features" ? (
-                                    <tr>
-                                        <th className="w-[24%] px-5 py-4">Feature</th>
-                                        <th className="w-[48%] px-5 py-4">Description</th>
-                                        <th className="w-[14%] px-5 py-4 text-center">Admin</th>
-                                        <th className="w-[14%] px-5 py-4 text-center">Employee</th>
-                                    </tr>
-                                ) : (
-                                    <tr>
-                                        <th className="w-[28%] px-5 py-4">Setting</th>
-                                        <th className="w-[18%] px-5 py-4">Current</th>
-                                        <th className="w-[18%] px-5 py-4">Type</th>
-                                        <th className="w-[36%] px-5 py-4">Action</th>
-                                    </tr>
-                                )}
-                            </thead>
-                            <tbody className="divide-y divide-white/10">
-                                {activeTab === "Roles" ? (
-                                    <>
-                                        {rolesLoading && <EmptyRow colSpan={3} text="Loading roles..." />}
-                                        {rolesError && <EmptyRow colSpan={3} text="Unable to load roles." danger />}
-                                        {!rolesLoading && !rolesError && roles.length === 0 && <EmptyRow colSpan={3} text="No roles yet." />}
-                                        {roles.map((role) => (
-                                            <tr key={role._id} className="text-sm text-white/80 transition hover:bg-white/[0.035]">
-                                                <td className="px-5 py-4 font-semibold text-white">{role.name}</td>
-                                                <td className="truncate px-5 py-4 text-white/55">{role.description || "No description"}</td>
-                                                <td className="px-5 py-4">
-                                                    <RowActions
-                                                        label={role.name}
-                                                        onEdit={() => openEditRoleModal(role)}
-                                                        onArchive={() =>
-                                                            openDeletePrompt({
-                                                                label: role.name,
-                                                                type: "Roles",
-                                                                onConfirm: () => archiveRoleMutation.mutate(role._id),
-                                                            })
-                                                        }
-                                                    />
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </>
-                                ) : activeTab === "Branches" ? (
-                                    <>
-                                        {branchesLoading && <EmptyRow colSpan={4} text="Loading branches..." />}
-                                        {branchesError && <EmptyRow colSpan={4} text="Unable to load branches." danger />}
-                                        {!branchesLoading && !branchesError && branches.length === 0 && <EmptyRow colSpan={4} text="No branches yet." />}
-                                        {branches.map((branch) => (
-                                            <tr key={branch._id} className="text-sm text-white/80 transition hover:bg-white/[0.035]">
-                                                <td className="px-5 py-4 font-semibold text-white">{branch.name}</td>
-                                                <td className="truncate px-5 py-4 text-white/60">{branch.company}</td>
-                                                <td className="truncate px-5 py-4 text-white/55">{branch.location || "No location"}</td>
-                                                <td className="px-5 py-4">
-                                                    <RowActions
-                                                        label={branch.name}
-                                                        onEdit={() => openEditBranchModal(branch)}
-                                                        onArchive={() =>
-                                                            openDeletePrompt({
-                                                                label: branch.name,
-                                                                type: "Branches",
-                                                                onConfirm: () => archiveBranchMutation.mutate(branch._id),
-                                                            })
-                                                        }
-                                                    />
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </>
-                                ) : activeTab === "Tools" ? (
-                                    <>
-                                        {toolsLoading && <EmptyRow colSpan={4} text="Loading tools..." />}
-                                        {toolsError && <EmptyRow colSpan={4} text="Unable to load tools." danger />}
-                                        {!toolsLoading && !toolsError && tools.length === 0 && <EmptyRow colSpan={4} text="No tools yet." />}
-                                        {tools.map((tool) => (
-                                            <tr key={tool._id} className="text-sm text-white/80 transition hover:bg-white/[0.035]">
-                                                <td className="px-5 py-4 font-semibold text-white">{tool.name}</td>
-                                                <td className="truncate px-5 py-4 text-white/60">
-                                                    {tool.link ? (
-                                                        <a className="block truncate transition hover:text-white" href={tool.link} target="_blank" rel="noreferrer">
-                                                            {tool.link}
-                                                        </a>
-                                                    ) : (
-                                                        "No link"
-                                                    )}
-                                                </td>
-                                                <td className="truncate px-5 py-4 text-white/55">
-                                                    {tool.branches?.length ? tool.branches.join(", ") : "All branches"}
-                                                </td>
-                                                <td className="px-5 py-4">
-                                                    <RowActions
-                                                        label={tool.name}
-                                                        onEdit={() => openEditToolModal(tool)}
-                                                        onArchive={() =>
-                                                            openDeletePrompt({
-                                                                label: tool.name,
-                                                                type: "Tools",
-                                                                onConfirm: () => archiveToolMutation.mutate(tool._id),
-                                                            })
-                                                        }
-                                                    />
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </>
-                                ) : activeTab === "Product Categories" ? (
-                                    <>
-                                        {productCategoriesLoading && <EmptyRow colSpan={3} text="Loading categories..." />}
-                                        {productCategoriesError && <EmptyRow colSpan={3} text="Unable to load categories." danger />}
-                                        {!productCategoriesLoading && !productCategoriesError && productCategories.length === 0 && <EmptyRow colSpan={3} text="No categories yet." />}
-                                        {productCategories.map((category) => (
-                                            <tr key={category._id} className="text-sm text-white/80 transition hover:bg-white/[0.035]">
-                                                <td className="px-5 py-4 font-semibold text-white">{category.name}</td>
-                                                <td className="truncate px-5 py-4 text-white/55">{category.description || "No description"}</td>
-                                                <td className="px-5 py-4">
-                                                    <RowActions
-                                                        label={category.name}
-                                                        onEdit={() => openEditProductCategoryModal(category)}
-                                                        onArchive={() =>
-                                                            openDeletePrompt({
-                                                                label: category.name,
-                                                                type: "Product Categories",
-                                                                onConfirm: () => archiveProductCategoryMutation.mutate(category._id),
-                                                            })
-                                                        }
-                                                    />
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </>
-                                ) : activeTab === "Features" ? (
-                                    <>
-                                        {featuresLoading && <EmptyRow colSpan={4} text="Loading features..." />}
-                                        {featuresError && <EmptyRow colSpan={4} text="Unable to load features." danger />}
-                                        {!featuresLoading && !featuresError && features.length === 0 && <EmptyRow colSpan={4} text="No features yet." />}
-                                        {features.map((feature) => (
-                                            <tr key={feature.key} className="text-sm text-white/80 transition hover:bg-white/[0.035]">
-                                                <td className="px-5 py-4 font-semibold text-white">{feature.label}</td>
-                                                <td className="truncate px-5 py-4 text-white/55">{feature.description || "No description"}</td>
-                                                <td className="px-5 py-4 text-center">
-                                                    <FeatureToggle
-                                                        checked={feature.adminEnabled}
-                                                        label={`Toggle admin ${feature.label}`}
-                                                        onChange={() =>
-                                                            updateFeatureMutation.mutate({
-                                                                feature: { ...feature, adminEnabled: !feature.adminEnabled },
-                                                            })
-                                                        }
-                                                    />
-                                                </td>
-                                                <td className="px-5 py-4 text-center">
-                                                    <FeatureToggle
-                                                        checked={feature.employeeEnabled}
-                                                        label={`Toggle employee ${feature.label}`}
-                                                        onChange={() =>
-                                                            updateFeatureMutation.mutate({
-                                                                feature: { ...feature, employeeEnabled: !feature.employeeEnabled },
-                                                            })
-                                                        }
-                                                    />
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </>
-                                ) : (
-                                    <>
-                                        {systemSettingsLoading && <EmptyRow colSpan={4} text="Loading system settings..." />}
-                                        {systemSettingsError && <EmptyRow colSpan={4} text="Unable to load system settings." danger />}
-                                        {!systemSettingsLoading &&
-                                            !systemSettingsError &&
-                                            currencyOptions.map((currency) => {
-                                                const isActive = (systemSettings?.currencyCode || "USD") === currency.code;
+                <div className="p-4">
+                    <div className="theme-surface-bg flex h-[calc(100vh-19rem)] min-h-[30rem] flex-col overflow-hidden rounded-lg border border-white/10 shadow-2xl shadow-black/20">
+                        <div className="content-scroll min-h-0 flex-1 overflow-auto bg-[linear-gradient(to_bottom,var(--panel-bg)_0,var(--panel-bg)_3.15rem,transparent_3.15rem)] [scrollbar-gutter:stable]">
+                            <table className="w-full min-w-[62rem] table-fixed border-separate border-spacing-0 text-left">
+                                <thead className="sticky top-0 z-10 bg-[var(--panel-bg)] text-[0.74rem] font-medium text-white/65 shadow-[12px_0_0_var(--panel-bg)]">
+                                    {activeTab === "Businesses" ? (
+                                        <tr>
+                                            <th className="w-[34%] px-5 py-4">Business Name</th>
+                                            <th className="w-[24%] px-5 py-4">Business ID</th>
+                                            <th className="w-[18%] px-5 py-4">Default</th>
+                                            <th className="w-[24%] px-5 py-4">Action</th>
+                                        </tr>
+                                    ) : activeTab === "Departments" ? (
+                                        <tr>
+                                            <th className="w-[22%] px-5 py-4">Department</th>
+                                            <th className="w-[22%] px-5 py-4">Role</th>
+                                            <th className="w-[20%] px-5 py-4">Branch</th>
+                                            <th className="w-[20%] px-5 py-4">Description</th>
+                                            <th className="w-[16%] px-5 py-4 text-right">Actions</th>
+                                        </tr>
+                                    ) : activeTab === "Branches" ? (
+                                        <tr>
+                                            <th className="w-[24%] px-5 py-4">Branch</th>
+                                            <th className="w-[24%] px-5 py-4">Company</th>
+                                            <th className="w-[36%] px-5 py-4">Location</th>
+                                            <th className="w-[16%] px-5 py-4 text-right">Actions</th>
+                                        </tr>
+                                    ) : activeTab === "Tools" ? (
+                                        <tr>
+                                            <th className="w-[22%] px-5 py-4">Tool</th>
+                                            <th className="w-[34%] px-5 py-4">Link</th>
+                                            <th className="w-[28%] px-5 py-4">Branches</th>
+                                            <th className="w-[16%] px-5 py-4 text-right">Actions</th>
+                                        </tr>
+                                    ) : activeTab === "Product Categories" ? (
+                                        <tr>
+                                            <th className="w-[28%] px-5 py-4">Category</th>
+                                            <th className="w-[56%] px-5 py-4">Description</th>
+                                            <th className="w-[16%] px-5 py-4 text-right">Actions</th>
+                                        </tr>
+                                    ) : activeTab === "Features" ? (
+                                        <tr>
+                                            <th className="w-[24%] px-5 py-4">Feature</th>
+                                            <th className="w-[48%] px-5 py-4">Description</th>
+                                            <th className="w-[14%] px-5 py-4 text-center">Admin</th>
+                                            <th className="w-[14%] px-5 py-4 text-center">Employee</th>
+                                        </tr>
+                                    ) : activeTab === "Themes" ? (
+                                        <tr>
+                                            <th className="w-[30%] px-5 py-4">Theme</th>
+                                            <th className="w-[18%] px-5 py-4">Basis</th>
+                                            <th className="w-[22%] px-5 py-4">Palette</th>
+                                            <th className="w-[30%] px-5 py-4">Action</th>
+                                        </tr>
+                                    ) : (
+                                        <tr>
+                                            <th className="w-[28%] px-5 py-4">Setting</th>
+                                            <th className="w-[18%] px-5 py-4">Current</th>
+                                            <th className="w-[18%] px-5 py-4">Type</th>
+                                            <th className="w-[36%] px-5 py-4">Action</th>
+                                        </tr>
+                                    )}
+                                </thead>
+                                <tbody className="divide-y divide-white/10">
+                                    {activeTab === "Businesses" ? (
+                                        <>
+                                            {businessesLoading && <EmptyRow colSpan={4} text="Loading businesses..." />}
+                                            {businessesError && <EmptyRow colSpan={4} text="Unable to load businesses." danger />}
+                                            {!businessesLoading && !businessesError && businesses.length === 0 && <EmptyRow colSpan={4} text="No businesses configured." />}
+                                            {visibleBusinesses.map((business) => {
+                                                const draftName = businessNameDrafts[business.id] ?? business.name;
+                                                const nextName = draftName.trim();
+                                                const isDirty = Boolean(nextName) && nextName !== business.name;
+                                                const isSaving =
+                                                    updateBusinessNameMutation.isPending &&
+                                                    updateBusinessNameMutation.variables?.id === business.id;
 
                                                 return (
-                                                    <tr key={currency.code} className="text-sm text-white/80 transition hover:bg-white/[0.035]">
-                                                        <td className="px-5 py-4 font-semibold text-white">{currency.label}</td>
-                                                        <td className="px-5 py-4 text-white/60">{currency.code}</td>
-                                                        <td className="px-5 py-4 text-xl font-semibold text-white">{currency.symbol}</td>
+                                                    <tr key={business.id} className="text-sm text-white/80 transition hover:bg-white/[0.035]">
+                                                        <td className="px-5 py-4">
+                                                            <input
+                                                                className="h-10 w-full rounded-lg border border-white/10 bg-black/20 px-3 text-sm font-semibold text-white outline-none transition placeholder:text-white/30 focus:border-[var(--primary)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--primary)_20%,transparent)] disabled:opacity-60"
+                                                                value={draftName}
+                                                                disabled={isSaving}
+                                                                onChange={(event) =>
+                                                                    setBusinessNameDrafts((drafts) => ({
+                                                                        ...drafts,
+                                                                        [business.id]: event.target.value,
+                                                                    }))
+                                                                }
+                                                                onKeyDown={(event) => {
+                                                                    if (event.key === "Enter") {
+                                                                        handleSaveBusinessName(business.id);
+                                                                    }
+                                                                }}
+                                                            />
+                                                        </td>
+                                                        <td className="px-5 py-4 font-mono text-xs text-white/55">{business.id}</td>
+                                                        <td className="px-5 py-4 text-white/60">{business.isDefault ? "Yes" : "No"}</td>
                                                         <td className="px-5 py-4">
                                                             <button
-                                                                className={[
-                                                                    "inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-60",
-                                                                    isActive
-                                                                        ? "border-[#842cff]/45 bg-[#842cff]/20 text-white"
-                                                                        : "border-white/10 bg-white/[0.04] text-white/60 hover:bg-white/[0.08] hover:text-white",
-                                                                ].join(" ")}
+                                                                className="theme-primary-bg inline-flex h-9 items-center gap-2 rounded-lg px-3 text-xs font-semibold text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
                                                                 type="button"
-                                                                disabled={isActive || updateSystemSettingsMutation.isPending}
-                                                                onClick={() => updateSystemSettingsMutation.mutate({ currencyCode: currency.code as CurrencyCode })}
+                                                                disabled={!isDirty || isSaving}
+                                                                onClick={() => handleSaveBusinessName(business.id)}
                                                             >
-                                                                {isActive && <FiCheck className="size-4" aria-hidden="true" />}
-                                                                {isActive ? "Active currency" : "Use currency"}
+                                                                <FiSave className="size-4" aria-hidden="true" />
+                                                                {isSaving ? "Saving" : "Save"}
                                                             </button>
                                                         </td>
                                                     </tr>
                                                 );
                                             })}
-                                        {!systemSettingsLoading && !systemSettingsError && (
-                                            <>
-                                                <tr className="bg-white/[0.02] text-sm text-white/80 transition hover:bg-white/[0.035]">
-                                                    <td className="px-5 py-4 font-semibold text-white">Payroll billing cycle</td>
-                                                    <td className="px-5 py-4 text-white/65">{systemSettings?.payrollBillingCycle || "Monthly"}</td>
-                                                    <td className="px-5 py-4 text-white/45">Payroll</td>
+                                        </>
+                                    ) : activeTab === "Departments" ? (
+                                        <>
+                                            {rolesLoading && <EmptyRow colSpan={5} text="Loading departments..." />}
+                                            {rolesError && <EmptyRow colSpan={5} text="Unable to load departments." danger />}
+                                            {!rolesLoading && !rolesError && roles.length === 0 && <EmptyRow colSpan={5} text="No departments yet." />}
+                                            {groupedVisibleRoles.map((group) => (
+                                                <Fragment key={group.branch}>
+                                                    <tr className="bg-[#0d111a] text-[0.68rem] font-semibold uppercase tracking-[0.16em] text-white/38">
+                                                        <td className="px-5 py-3" colSpan={5}>
+                                                            <div className="flex items-center gap-3">
+                                                                <span className="h-px flex-1 bg-white/10" />
+                                                                <span>{group.branch}</span>
+                                                                <span className="rounded-md border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[0.62rem] text-white/45">
+                                                                    {group.roles.length} role{group.roles.length === 1 ? "" : "s"}
+                                                                </span>
+                                                                <span className="h-px flex-1 bg-white/10" />
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                    {group.roles.map(({ role, displayBranch }) => (
+                                                        <tr key={role._id} className="text-sm text-white/80 transition hover:bg-white/[0.035]">
+                                                            <td className="px-5 py-4 font-semibold text-white">{role.department || "General"}</td>
+                                                            <td className="px-5 py-4 text-white/75">{role.name}</td>
+                                                            <td className="truncate px-5 py-4 text-white/60">{displayBranch}</td>
+                                                            <td className="truncate px-5 py-4 text-white/55">{role.description || "No description"}</td>
+                                                            <td className="px-5 py-4">
+                                                                <RowActions
+                                                                    label={role.name}
+                                                                    onEdit={() => openEditRoleModal(role)}
+                                                                    onArchive={() =>
+                                                                        openDeletePrompt({
+                                                                            label: role.name,
+                                                                            type: "Departments",
+                                                                            onConfirm: () => archiveRoleMutation.mutate(role._id),
+                                                                        })
+                                                                    }
+                                                                />
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                </Fragment>
+                                            ))}
+                                        </>
+                                    ) : activeTab === "Branches" ? (
+                                        <>
+                                            {branchesLoading && <EmptyRow colSpan={4} text="Loading branches..." />}
+                                            {branchesError && <EmptyRow colSpan={4} text="Unable to load branches." danger />}
+                                            {!branchesLoading && !branchesError && branches.length === 0 && <EmptyRow colSpan={4} text="No branches yet." />}
+                                            {visibleBranches.map((branch) => (
+                                                <tr key={branch._id} className="text-sm text-white/80 transition hover:bg-white/[0.035]">
+                                                    <td className="px-5 py-4 font-semibold text-white">{branch.name}</td>
+                                                    <td className="truncate px-5 py-4 text-white/60">{branch.company}</td>
+                                                    <td className="truncate px-5 py-4 text-white/55">{branch.location || "No location"}</td>
                                                     <td className="px-5 py-4">
-                                                        <select
-                                                            className="h-9 min-w-40 rounded-lg border border-white/10 bg-[#080b12] px-3 text-sm font-semibold text-white outline-none transition focus:border-[#842cff] focus:ring-2 focus:ring-[#842cff]/20 disabled:opacity-60"
-                                                            value={systemSettings?.payrollBillingCycle || "Monthly"}
-                                                            disabled={updateSystemSettingsMutation.isPending}
-                                                            onChange={(event) =>
-                                                                updateSystemSettingsMutation.mutate({
-                                                                    payrollBillingCycle: event.target.value as PayrollBillingCycle,
-                                                                })
-                                                            }
-                                                        >
-                                                            {payrollBillingCycleOptions.map((cycle) => (
-                                                                <option key={cycle}>{cycle}</option>
-                                                            ))}
-                                                        </select>
-                                                    </td>
-                                                </tr>
-                                                <tr className="text-sm text-white/80 transition hover:bg-white/[0.035]">
-                                                    <td className="px-5 py-4 font-semibold text-white">Payroll run day</td>
-                                                    <td className="px-5 py-4 text-white/65">Day {systemSettings?.payrollRunDay ?? 15}</td>
-                                                    <td className="px-5 py-4 text-white/45">Schedule</td>
-                                                    <td className="px-5 py-4">
-                                                        <input
-                                                            className="h-9 w-28 rounded-lg border border-white/10 bg-black/20 px-3 text-sm font-semibold text-white outline-none transition focus:border-[#842cff] focus:ring-2 focus:ring-[#842cff]/20 disabled:opacity-60"
-                                                            type="number"
-                                                            min={1}
-                                                            max={31}
-                                                            defaultValue={systemSettings?.payrollRunDay ?? 15}
-                                                            disabled={updateSystemSettingsMutation.isPending}
-                                                            onBlur={(event) =>
-                                                                updateSystemSettingsMutation.mutate({
-                                                                    payrollRunDay: Number(event.target.value),
+                                                        <RowActions
+                                                            label={branch.name}
+                                                            onEdit={() => openEditBranchModal(branch)}
+                                                            onArchive={() =>
+                                                                openDeletePrompt({
+                                                                    label: branch.name,
+                                                                    type: "Branches",
+                                                                    onConfirm: () => archiveBranchMutation.mutate(branch._id),
                                                                 })
                                                             }
                                                         />
                                                     </td>
                                                 </tr>
-                                                <tr className="bg-white/[0.02] text-sm text-white/80 transition hover:bg-white/[0.035]">
-                                                    <td className="px-5 py-4 font-semibold text-white">Employee deductions</td>
-                                                    <td className="px-5 py-4 text-white/65">Payroll Deductions tab</td>
-                                                    <td className="px-5 py-4 text-white/45">Payroll</td>
-                                                    <td className="px-5 py-4 text-sm text-white/45">
-                                                        Add SSS, benefits, or other fixed employee deductions in Payroll &gt; Deductions.
+                                            ))}
+                                        </>
+                                    ) : activeTab === "Tools" ? (
+                                        <>
+                                            {toolsLoading && <EmptyRow colSpan={4} text="Loading tools..." />}
+                                            {toolsError && <EmptyRow colSpan={4} text="Unable to load tools." danger />}
+                                            {!toolsLoading && !toolsError && tools.length === 0 && <EmptyRow colSpan={4} text="No tools yet." />}
+                                            {visibleTools.map((tool) => (
+                                                <tr key={tool._id} className="text-sm text-white/80 transition hover:bg-white/[0.035]">
+                                                    <td className="px-5 py-4 font-semibold text-white">{tool.name}</td>
+                                                    <td className="truncate px-5 py-4 text-white/60">
+                                                        {tool.link ? (
+                                                            <a className="block truncate transition hover:text-white" href={tool.link} target="_blank" rel="noreferrer">
+                                                                {tool.link}
+                                                            </a>
+                                                        ) : (
+                                                            "No link"
+                                                        )}
+                                                    </td>
+                                                    <td className="truncate px-5 py-4 text-white/55">
+                                                        {tool.branches?.length ? tool.branches.join(", ") : "All branches"}
+                                                    </td>
+                                                    <td className="px-5 py-4">
+                                                        <RowActions
+                                                            label={tool.name}
+                                                            onEdit={() => openEditToolModal(tool)}
+                                                            onArchive={() =>
+                                                                openDeletePrompt({
+                                                                    label: tool.name,
+                                                                    type: "Tools",
+                                                                    onConfirm: () => archiveToolMutation.mutate(tool._id),
+                                                                })
+                                                            }
+                                                        />
                                                     </td>
                                                 </tr>
-                                            </>
-                                        )}
-                                    </>
-                                )}
-                            </tbody>
-                        </table>
+                                            ))}
+                                        </>
+                                    ) : activeTab === "Product Categories" ? (
+                                        <>
+                                            {productCategoriesLoading && <EmptyRow colSpan={3} text="Loading categories..." />}
+                                            {productCategoriesError && <EmptyRow colSpan={3} text="Unable to load categories." danger />}
+                                            {!productCategoriesLoading && !productCategoriesError && productCategories.length === 0 && <EmptyRow colSpan={3} text="No categories yet." />}
+                                            {visibleProductCategories.map((category) => (
+                                                <tr key={category._id} className="text-sm text-white/80 transition hover:bg-white/[0.035]">
+                                                    <td className="px-5 py-4 font-semibold text-white">{category.name}</td>
+                                                    <td className="truncate px-5 py-4 text-white/55">{category.description || "No description"}</td>
+                                                    <td className="px-5 py-4">
+                                                        <RowActions
+                                                            label={category.name}
+                                                            onEdit={() => openEditProductCategoryModal(category)}
+                                                            onArchive={() =>
+                                                                openDeletePrompt({
+                                                                    label: category.name,
+                                                                    type: "Product Categories",
+                                                                    onConfirm: () => archiveProductCategoryMutation.mutate(category._id),
+                                                                })
+                                                            }
+                                                        />
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </>
+                                    ) : activeTab === "Features" ? (
+                                        <>
+                                            {featuresLoading && <EmptyRow colSpan={4} text="Loading features..." />}
+                                            {featuresError && <EmptyRow colSpan={4} text="Unable to load features." danger />}
+                                            {!featuresLoading && !featuresError && features.length === 0 && <EmptyRow colSpan={4} text="No features yet." />}
+                                            {visibleFeatures.map((feature) => (
+                                                <tr key={feature.key} className="text-sm text-white/80 transition hover:bg-white/[0.035]">
+                                                    <td className="px-5 py-4 font-semibold text-white">{feature.label}</td>
+                                                    <td className="truncate px-5 py-4 text-white/55">{feature.description || "No description"}</td>
+                                                    <td className="px-5 py-4 text-center">
+                                                        <FeatureToggle
+                                                            checked={feature.adminEnabled}
+                                                            label={`Toggle admin ${feature.label}`}
+                                                            onChange={() =>
+                                                                updateFeatureMutation.mutate({
+                                                                    feature: { ...feature, adminEnabled: !feature.adminEnabled },
+                                                                })
+                                                            }
+                                                        />
+                                                    </td>
+                                                    <td className="px-5 py-4 text-center">
+                                                        <FeatureToggle
+                                                            checked={feature.employeeEnabled}
+                                                            label={`Toggle employee ${feature.label}`}
+                                                            onChange={() =>
+                                                                updateFeatureMutation.mutate({
+                                                                    feature: { ...feature, employeeEnabled: !feature.employeeEnabled },
+                                                                })
+                                                            }
+                                                        />
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </>
+                                    ) : activeTab === "Themes" ? (
+                                        <>
+                                            {systemSettingsLoading && <EmptyRow colSpan={4} text="Loading themes..." />}
+                                            {systemSettingsError && <EmptyRow colSpan={4} text="Unable to load themes." danger />}
+                                            {!systemSettingsLoading &&
+                                                !systemSettingsError &&
+                                                visibleThemes.map((theme) => {
+                                                    const isActive = (systemSettings?.themeKey || "theme-1") === theme.key;
+                                                    const isLightTheme = theme.key.startsWith("light-");
+
+                                                    return (
+                                                        <tr key={theme.key} className="text-sm text-white/80 transition hover:bg-white/[0.035]">
+                                                            <td className="px-5 py-4">
+                                                                <div className="font-semibold text-white">{theme.name}</div>
+                                                                <div className="mt-1 text-xs text-white/40">{theme.description}</div>
+                                                            </td>
+                                                            <td className="px-5 py-4 text-white/60">{isLightTheme ? "White" : "Dark"}</td>
+                                                            <td className="px-5 py-4">
+                                                                <div className="flex items-center gap-1.5">
+                                                                    {[theme.colors.primary, theme.colors.secondary, theme.colors.app, theme.colors.panel].map((color) => (
+                                                                        <span
+                                                                            key={color}
+                                                                            className="size-5 rounded-md border border-white/10"
+                                                                            style={{ backgroundColor: color }}
+                                                                        />
+                                                                    ))}
+                                                                </div>
+                                                            </td>
+                                                            <td className="px-5 py-4">
+                                                                <button
+                                                                    className={[
+                                                                        "inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-60",
+                                                                        isActive
+                                                                            ? "theme-primary-border theme-primary-soft-bg text-white"
+                                                                            : "border-white/10 bg-white/[0.04] text-white/60 hover:bg-white/[0.08] hover:text-white",
+                                                                    ].join(" ")}
+                                                                    type="button"
+                                                                    disabled={isActive || updateSystemSettingsMutation.isPending}
+                                                                    onClick={() => updateSystemSettingsMutation.mutate({ themeKey: theme.key as ThemeKey })}
+                                                                >
+                                                                    {isActive && <FiCheck className="size-4" aria-hidden="true" />}
+                                                                    {isActive ? "Active theme" : "Use theme"}
+                                                                </button>
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                })}
+                                        </>
+                                    ) : (
+                                        <>
+                                            {systemSettingsLoading && <EmptyRow colSpan={4} text="Loading system settings..." />}
+                                            {systemSettingsError && <EmptyRow colSpan={4} text="Unable to load system settings." danger />}
+                                            {!systemSettingsLoading &&
+                                                !systemSettingsError &&
+                                                currencyOptions.map((currency) => {
+                                                    const isActive = (systemSettings?.currencyCode || "USD") === currency.code;
+
+                                                    return (
+                                                        <tr key={currency.code} className="text-sm text-white/80 transition hover:bg-white/[0.035]">
+                                                            <td className="px-5 py-4 font-semibold text-white">{currency.label}</td>
+                                                            <td className="px-5 py-4 text-white/60">{currency.code}</td>
+                                                            <td className="px-5 py-4 text-xl font-semibold text-white">{currency.symbol}</td>
+                                                            <td className="px-5 py-4">
+                                                                <button
+                                                                    className={[
+                                                                        "inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-60",
+                                                                        isActive
+                                                                            ? "theme-primary-border theme-primary-soft-bg text-white"
+                                                                            : "border-white/10 bg-white/[0.04] text-white/60 hover:bg-white/[0.08] hover:text-white",
+                                                                    ].join(" ")}
+                                                                    type="button"
+                                                                    disabled={isActive || updateSystemSettingsMutation.isPending}
+                                                                    onClick={() => updateSystemSettingsMutation.mutate({ currencyCode: currency.code as CurrencyCode })}
+                                                                >
+                                                                    {isActive && <FiCheck className="size-4" aria-hidden="true" />}
+                                                                    {isActive ? "Active currency" : "Use currency"}
+                                                                </button>
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                })}
+                                            {!systemSettingsLoading && !systemSettingsError && (
+                                                <>
+                                                    <tr className="bg-white/[0.02] text-sm text-white/80 transition hover:bg-white/[0.035]">
+                                                        <td className="px-5 py-4 font-semibold text-white">Auto assign leads</td>
+                                                        <td className="px-5 py-4 text-white/65">
+                                                            {systemSettings?.autoAssignLeadsEnabled === false ? "Off" : "On"}
+                                                        </td>
+                                                        <td className="px-5 py-4 text-white/45">Leads</td>
+                                                        <td className="px-5 py-4">
+                                                            <FeatureToggle
+                                                                checked={systemSettings?.autoAssignLeadsEnabled !== false}
+                                                                label="Toggle lead auto assignment"
+                                                                onChange={() =>
+                                                                    updateSystemSettingsMutation.mutate({
+                                                                        autoAssignLeadsEnabled: !(systemSettings?.autoAssignLeadsEnabled !== false),
+                                                                    })
+                                                                }
+                                                            />
+                                                        </td>
+                                                    </tr>
+                                                    <tr className="text-sm text-white/80 transition hover:bg-white/[0.035]">
+                                                        <td className="px-5 py-4 font-semibold text-white">Lead mini tabs</td>
+                                                        <td className="px-5 py-4 text-white/65">
+                                                            {systemSettings?.adminLeadMiniTabsEnabled === false ? "Off" : "On"}
+                                                        </td>
+                                                        <td className="px-5 py-4 text-white/45">Admin leads</td>
+                                                        <td className="px-5 py-4">
+                                                            <FeatureToggle
+                                                                checked={systemSettings?.adminLeadMiniTabsEnabled !== false}
+                                                                label="Toggle admin lead mini tabs"
+                                                                onChange={() =>
+                                                                    updateSystemSettingsMutation.mutate({
+                                                                        adminLeadMiniTabsEnabled: !(systemSettings?.adminLeadMiniTabsEnabled !== false),
+                                                                    })
+                                                                }
+                                                            />
+                                                        </td>
+                                                    </tr>
+                                                    <tr className="bg-white/[0.02] text-sm text-white/80 transition hover:bg-white/[0.035]">
+                                                        <td className="px-5 py-4 font-semibold text-white">Employee lead mini tabs</td>
+                                                        <td className="px-5 py-4 text-white/65">
+                                                            {systemSettings?.employeeLeadMiniTabsEnabled === false ? "Off" : "On"}
+                                                        </td>
+                                                        <td className="px-5 py-4 text-white/45">Employee leads</td>
+                                                        <td className="px-5 py-4">
+                                                            <FeatureToggle
+                                                                checked={systemSettings?.employeeLeadMiniTabsEnabled !== false}
+                                                                label="Toggle employee lead mini tabs"
+                                                                onChange={() =>
+                                                                    updateSystemSettingsMutation.mutate({
+                                                                        employeeLeadMiniTabsEnabled: !(systemSettings?.employeeLeadMiniTabsEnabled !== false),
+                                                                    })
+                                                                }
+                                                            />
+                                                        </td>
+                                                    </tr>
+                                                    <tr className="text-sm text-white/80 transition hover:bg-white/[0.035]">
+                                                        <td className="px-5 py-4 font-semibold text-white">Tracker clear data</td>
+                                                        <td className="px-5 py-4 text-white/65">
+                                                            {systemSettings?.trackerClearDataEnabled === false ? "Disabled" : "Enabled"}
+                                                        </td>
+                                                        <td className="px-5 py-4 text-white/45">Tracker</td>
+                                                        <td className="px-5 py-4">
+                                                            <FeatureToggle
+                                                                checked={systemSettings?.trackerClearDataEnabled !== false}
+                                                                label="Toggle tracker clear data"
+                                                                onChange={() =>
+                                                                    updateSystemSettingsMutation.mutate({
+                                                                        trackerClearDataEnabled: !(systemSettings?.trackerClearDataEnabled !== false),
+                                                                    })
+                                                                }
+                                                            />
+                                                        </td>
+                                                    </tr>
+                                                    <tr className="text-sm text-white/80 transition hover:bg-white/[0.035]">
+                                                        <td className="px-5 py-4 font-semibold text-white">Payroll billing cycle</td>
+                                                        <td className="px-5 py-4 text-white/65">{systemSettings?.payrollBillingCycle || "Semi-monthly"}</td>
+                                                        <td className="px-5 py-4 text-white/45">Payroll</td>
+                                                        <td className="px-5 py-4">
+                                                            <select
+                                                                className="h-9 min-w-40 rounded-lg border border-white/10 bg-[var(--surface-bg)] px-3 text-sm font-semibold text-white outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--primary)_20%,transparent)] disabled:opacity-60"
+                                                                value={systemSettings?.payrollBillingCycle || "Semi-monthly"}
+                                                                disabled={updateSystemSettingsMutation.isPending}
+                                                                onChange={(event) =>
+                                                                    updateSystemSettingsMutation.mutate({
+                                                                        payrollBillingCycle: event.target.value as PayrollBillingCycle,
+                                                                    })
+                                                                }
+                                                            >
+                                                                {payrollBillingCycleOptions.map((cycle) => (
+                                                                    <option key={cycle}>{cycle}</option>
+                                                                ))}
+                                                            </select>
+                                                        </td>
+                                                    </tr>
+                                                    <tr className="bg-white/[0.02] text-sm text-white/80 transition hover:bg-white/[0.035]">
+                                                        <td className="px-5 py-4 font-semibold text-white">Payroll cut off ranges</td>
+                                                        <td className="px-5 py-4 text-white/65">
+                                                            <div className="flex flex-wrap gap-2">
+                                                                <span className="rounded-md border border-white/10 bg-white/[0.045] px-2.5 py-1 text-xs font-semibold text-white/75">
+                                                                    1st: {firstCutoffStartDay}-{firstCutoffEndDay}, paid {firstCutoffPayDay}
+                                                                </span>
+                                                                <span className="rounded-md border border-white/10 bg-white/[0.045] px-2.5 py-1 text-xs font-semibold text-white/75">
+                                                                    2nd: {secondCutoffStartDay}-{secondCutoffEndDay}, paid {secondCutoffPayDay}
+                                                                </span>
+                                                            </div>
+                                                        </td>
+                                                        <td className="px-5 py-4 text-white/45">Payroll</td>
+                                                        <td className="px-5 py-4">
+                                                            <div className="grid min-w-[28rem] gap-3 2xl:grid-cols-2">
+                                                                <div className="rounded-lg border border-white/10 bg-black/10 p-3">
+                                                                    <p className="mb-2 text-[0.65rem] font-semibold uppercase tracking-[0.14em] text-white/40">1st Cutoff</p>
+                                                                    <div className="grid grid-cols-[minmax(4rem,1fr)_auto_minmax(4rem,1fr)_auto_minmax(4rem,1fr)] items-center gap-2">
+                                                                        <input
+                                                                            className="h-9 min-w-0 rounded-lg border border-white/10 bg-black/20 px-3 text-sm font-semibold text-white outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--primary)_20%,transparent)] disabled:opacity-60"
+                                                                            type="number"
+                                                                            min={1}
+                                                                            max={31}
+                                                                            defaultValue={firstCutoffStartDay}
+                                                                            disabled={updateSystemSettingsMutation.isPending}
+                                                                            onBlur={(event) =>
+                                                                                updateSystemSettingsMutation.mutate({
+                                                                                    payrollFirstCutoffStartDay: Number(event.target.value),
+                                                                                })
+                                                                            }
+                                                                        />
+                                                                        <span className="px-1 text-sm font-semibold text-white/45">to</span>
+                                                                        <input
+                                                                            className="h-9 min-w-0 rounded-lg border border-white/10 bg-black/20 px-3 text-sm font-semibold text-white outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--primary)_20%,transparent)] disabled:opacity-60"
+                                                                            type="number"
+                                                                            min={1}
+                                                                            max={31}
+                                                                            defaultValue={firstCutoffEndDay}
+                                                                            disabled={updateSystemSettingsMutation.isPending}
+                                                                            onBlur={(event) =>
+                                                                                updateSystemSettingsMutation.mutate({
+                                                                                    payrollFirstCutoffEndDay: Number(event.target.value),
+                                                                                })
+                                                                            }
+                                                                        />
+                                                                        <span className="px-1 text-sm font-semibold text-white/45">paid</span>
+                                                                        <input
+                                                                            className="h-9 min-w-0 rounded-lg border border-white/10 bg-black/20 px-3 text-sm font-semibold text-white outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--primary)_20%,transparent)] disabled:opacity-60"
+                                                                            type="number"
+                                                                            min={1}
+                                                                            max={31}
+                                                                            defaultValue={firstCutoffPayDay}
+                                                                            disabled={updateSystemSettingsMutation.isPending}
+                                                                            onBlur={(event) =>
+                                                                                updateSystemSettingsMutation.mutate({
+                                                                                    payrollFirstCutoffPayDay: Number(event.target.value),
+                                                                                })
+                                                                            }
+                                                                        />
+                                                                    </div>
+                                                                </div>
+                                                                <div className="rounded-lg border border-white/10 bg-black/10 p-3">
+                                                                    <p className="mb-2 text-[0.65rem] font-semibold uppercase tracking-[0.14em] text-white/40">2nd Cutoff</p>
+                                                                    <div className="grid grid-cols-[minmax(4rem,1fr)_auto_minmax(4rem,1fr)_auto_minmax(4rem,1fr)] items-center gap-2">
+                                                                        <input
+                                                                            className="h-9 min-w-0 rounded-lg border border-white/10 bg-black/20 px-3 text-sm font-semibold text-white outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--primary)_20%,transparent)] disabled:opacity-60"
+                                                                            type="number"
+                                                                            min={1}
+                                                                            max={31}
+                                                                            defaultValue={secondCutoffStartDay}
+                                                                            disabled={updateSystemSettingsMutation.isPending}
+                                                                            onBlur={(event) =>
+                                                                                updateSystemSettingsMutation.mutate({
+                                                                                    payrollSecondCutoffStartDay: Number(event.target.value),
+                                                                                })
+                                                                            }
+                                                                        />
+                                                                        <span className="px-1 text-sm font-semibold text-white/45">to</span>
+                                                                        <input
+                                                                            className="h-9 min-w-0 rounded-lg border border-white/10 bg-black/20 px-3 text-sm font-semibold text-white outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--primary)_20%,transparent)] disabled:opacity-60"
+                                                                            type="number"
+                                                                            min={1}
+                                                                            max={31}
+                                                                            defaultValue={secondCutoffEndDay}
+                                                                            disabled={updateSystemSettingsMutation.isPending}
+                                                                            onBlur={(event) =>
+                                                                                updateSystemSettingsMutation.mutate({
+                                                                                    payrollSecondCutoffEndDay: Number(event.target.value),
+                                                                                })
+                                                                            }
+                                                                        />
+                                                                        <span className="px-1 text-sm font-semibold text-white/45">paid</span>
+                                                                        <input
+                                                                            className="h-9 min-w-0 rounded-lg border border-white/10 bg-black/20 px-3 text-sm font-semibold text-white outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--primary)_20%,transparent)] disabled:opacity-60"
+                                                                            type="number"
+                                                                            min={1}
+                                                                            max={31}
+                                                                            defaultValue={secondCutoffPayDay}
+                                                                            disabled={updateSystemSettingsMutation.isPending}
+                                                                            onBlur={(event) =>
+                                                                                updateSystemSettingsMutation.mutate({
+                                                                                    payrollSecondCutoffPayDay: Number(event.target.value),
+                                                                                })
+                                                                            }
+                                                                        />
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                    <tr className="bg-white/[0.02] text-sm text-white/80 transition hover:bg-white/[0.035]">
+                                                        <td className="px-5 py-4 font-semibold text-white">Official shift time</td>
+                                                        <td className="px-5 py-4 text-white/65">{systemSettings?.officialShiftStartTime || "23:00"} - {systemSettings?.officialShiftEndTime || "08:00"}</td>
+                                                        <td className="px-5 py-4 text-white/45">Attendance</td>
+                                                        <td className="px-5 py-4">
+                                                            <div className="flex flex-wrap gap-2">
+                                                                <input
+                                                                    className="h-9 w-32 rounded-lg border border-white/10 bg-black/20 px-3 text-sm font-semibold text-white outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--primary)_20%,transparent)] disabled:opacity-60"
+                                                                    type="time"
+                                                                    defaultValue={systemSettings?.officialShiftStartTime || "23:00"}
+                                                                    disabled={updateSystemSettingsMutation.isPending}
+                                                                    onBlur={(event) =>
+                                                                        updateSystemSettingsMutation.mutate({
+                                                                            officialShiftStartTime: event.target.value,
+                                                                        })
+                                                                    }
+                                                                />
+                                                                <input
+                                                                    className="h-9 w-32 rounded-lg border border-white/10 bg-black/20 px-3 text-sm font-semibold text-white outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--primary)_20%,transparent)] disabled:opacity-60"
+                                                                    type="time"
+                                                                    defaultValue={systemSettings?.officialShiftEndTime || "08:00"}
+                                                                    disabled={updateSystemSettingsMutation.isPending}
+                                                                    onBlur={(event) =>
+                                                                        updateSystemSettingsMutation.mutate({
+                                                                            officialShiftEndTime: event.target.value,
+                                                                        })
+                                                                    }
+                                                                />
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                    <tr className="text-sm text-white/80 transition hover:bg-white/[0.035]">
+                                                        <td className="px-5 py-4 font-semibold text-white">Attendance time zone</td>
+                                                        <td className="px-5 py-4 text-white/65">{systemSettings?.attendanceTimeZone || "Asia/Manila"}</td>
+                                                        <td className="px-5 py-4 text-white/45">Attendance</td>
+                                                        <td className="px-5 py-4">
+                                                            <select
+                                                                className="h-9 min-w-64 rounded-lg border border-white/10 bg-[var(--surface-bg)] px-3 text-sm font-semibold text-white outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--primary)_20%,transparent)] disabled:opacity-60"
+                                                                value={systemSettings?.attendanceTimeZone || "Asia/Manila"}
+                                                                disabled={updateSystemSettingsMutation.isPending}
+                                                                onChange={(event) =>
+                                                                    updateSystemSettingsMutation.mutate({
+                                                                        attendanceTimeZone: event.target.value,
+                                                                    })
+                                                                }
+                                                            >
+                                                                {attendanceTimeZoneOptions.map((timeZone) => (
+                                                                    <option key={timeZone.value} value={timeZone.value}>{timeZone.label}</option>
+                                                                ))}
+                                                            </select>
+                                                        </td>
+                                                    </tr>
+                                                    <tr className="bg-white/[0.02] text-sm text-white/80 transition hover:bg-white/[0.035]">
+                                                        <td className="px-5 py-4 font-semibold text-white">Official 1st break</td>
+                                                        <td className="px-5 py-4 text-white/65">{systemSettings?.officialFirstBreakStartTime || "01:00"} - {systemSettings?.officialFirstBreakEndTime || "01:15"}</td>
+                                                        <td className="px-5 py-4 text-white/45">Attendance</td>
+                                                        <td className="px-5 py-4">
+                                                            <div className="flex flex-wrap gap-2">
+                                                                <input
+                                                                    className="h-9 w-32 rounded-lg border border-white/10 bg-black/20 px-3 text-sm font-semibold text-white outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--primary)_20%,transparent)] disabled:opacity-60"
+                                                                    type="time"
+                                                                    defaultValue={systemSettings?.officialFirstBreakStartTime || "01:00"}
+                                                                    disabled={updateSystemSettingsMutation.isPending}
+                                                                    onBlur={(event) =>
+                                                                        updateSystemSettingsMutation.mutate({
+                                                                            officialFirstBreakStartTime: event.target.value,
+                                                                        })
+                                                                    }
+                                                                />
+                                                                <input
+                                                                    className="h-9 w-32 rounded-lg border border-white/10 bg-black/20 px-3 text-sm font-semibold text-white outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--primary)_20%,transparent)] disabled:opacity-60"
+                                                                    type="time"
+                                                                    defaultValue={systemSettings?.officialFirstBreakEndTime || "01:15"}
+                                                                    disabled={updateSystemSettingsMutation.isPending}
+                                                                    onBlur={(event) =>
+                                                                        updateSystemSettingsMutation.mutate({
+                                                                            officialFirstBreakEndTime: event.target.value,
+                                                                        })
+                                                                    }
+                                                                />
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                    <tr className="text-sm text-white/80 transition hover:bg-white/[0.035]">
+                                                        <td className="px-5 py-4 font-semibold text-white">Official lunch break</td>
+                                                        <td className="px-5 py-4 text-white/65">{systemSettings?.officialLunchBreakStartTime || "03:15"} - {systemSettings?.officialLunchBreakEndTime || "04:15"}</td>
+                                                        <td className="px-5 py-4 text-white/45">Attendance</td>
+                                                        <td className="px-5 py-4">
+                                                            <div className="flex flex-wrap gap-2">
+                                                                <input
+                                                                    className="h-9 w-32 rounded-lg border border-white/10 bg-black/20 px-3 text-sm font-semibold text-white outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--primary)_20%,transparent)] disabled:opacity-60"
+                                                                    type="time"
+                                                                    defaultValue={systemSettings?.officialLunchBreakStartTime || "03:15"}
+                                                                    disabled={updateSystemSettingsMutation.isPending}
+                                                                    onBlur={(event) =>
+                                                                        updateSystemSettingsMutation.mutate({
+                                                                            officialLunchBreakStartTime: event.target.value,
+                                                                        })
+                                                                    }
+                                                                />
+                                                                <input
+                                                                    className="h-9 w-32 rounded-lg border border-white/10 bg-black/20 px-3 text-sm font-semibold text-white outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--primary)_20%,transparent)] disabled:opacity-60"
+                                                                    type="time"
+                                                                    defaultValue={systemSettings?.officialLunchBreakEndTime || "04:15"}
+                                                                    disabled={updateSystemSettingsMutation.isPending}
+                                                                    onBlur={(event) =>
+                                                                        updateSystemSettingsMutation.mutate({
+                                                                            officialLunchBreakEndTime: event.target.value,
+                                                                        })
+                                                                    }
+                                                                />
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                    <tr className="bg-white/[0.02] text-sm text-white/80 transition hover:bg-white/[0.035]">
+                                                        <td className="px-5 py-4 font-semibold text-white">Official 2nd break</td>
+                                                        <td className="px-5 py-4 text-white/65">{systemSettings?.officialSecondBreakStartTime || "06:15"} - {systemSettings?.officialSecondBreakEndTime || "06:30"}</td>
+                                                        <td className="px-5 py-4 text-white/45">Attendance</td>
+                                                        <td className="px-5 py-4">
+                                                            <div className="flex flex-wrap gap-2">
+                                                                <input
+                                                                    className="h-9 w-32 rounded-lg border border-white/10 bg-black/20 px-3 text-sm font-semibold text-white outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--primary)_20%,transparent)] disabled:opacity-60"
+                                                                    type="time"
+                                                                    defaultValue={systemSettings?.officialSecondBreakStartTime || "06:15"}
+                                                                    disabled={updateSystemSettingsMutation.isPending}
+                                                                    onBlur={(event) =>
+                                                                        updateSystemSettingsMutation.mutate({
+                                                                            officialSecondBreakStartTime: event.target.value,
+                                                                        })
+                                                                    }
+                                                                />
+                                                                <input
+                                                                    className="h-9 w-32 rounded-lg border border-white/10 bg-black/20 px-3 text-sm font-semibold text-white outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--primary)_20%,transparent)] disabled:opacity-60"
+                                                                    type="time"
+                                                                    defaultValue={systemSettings?.officialSecondBreakEndTime || "06:30"}
+                                                                    disabled={updateSystemSettingsMutation.isPending}
+                                                                    onBlur={(event) =>
+                                                                        updateSystemSettingsMutation.mutate({
+                                                                            officialSecondBreakEndTime: event.target.value,
+                                                                        })
+                                                                    }
+                                                                />
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                    <tr className="text-sm text-white/80 transition hover:bg-white/[0.035]">
+                                                        <td className="px-5 py-4 font-semibold text-white">Late grace minutes</td>
+                                                        <td className="px-5 py-4 text-white/65">{systemSettings?.lateGraceMinutes ?? 0} min</td>
+                                                        <td className="px-5 py-4 text-white/45">Attendance</td>
+                                                        <td className="px-5 py-4">
+                                                            <input
+                                                                className="h-9 w-28 rounded-lg border border-white/10 bg-black/20 px-3 text-sm font-semibold text-white outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--primary)_20%,transparent)] disabled:opacity-60"
+                                                                type="number"
+                                                                min={0}
+                                                                max={240}
+                                                                defaultValue={systemSettings?.lateGraceMinutes ?? 0}
+                                                                disabled={updateSystemSettingsMutation.isPending}
+                                                                onBlur={(event) =>
+                                                                    updateSystemSettingsMutation.mutate({
+                                                                        lateGraceMinutes: Number(event.target.value),
+                                                                    })
+                                                                }
+                                                            />
+                                                        </td>
+                                                    </tr>
+                                                    <tr className="text-sm text-white/80 transition hover:bg-white/[0.035]">
+                                                        <td className="px-5 py-4 font-semibold text-white">Employee deductions</td>
+                                                        <td className="px-5 py-4 text-white/65">Payroll Deductions tab</td>
+                                                        <td className="px-5 py-4 text-white/45">Payroll</td>
+                                                        <td className="px-5 py-4 text-sm text-white/45">
+                                                            Add SSS, benefits, or other fixed employee deductions in Payroll &gt; Deductions.
+                                                        </td>
+                                                    </tr>
+                                                </>
+                                            )}
+                                        </>
+                                    )}
+                                </tbody>
+                            </table>
                         </div>
-                        <div className="flex min-h-14 items-center justify-between border-t border-white/10 px-5 py-3">
-                            <p className="text-xs text-white/45">
-                                {activeTab === "Roles"
-                                    ? `Showing ${roles.length} role${roles.length === 1 ? "" : "s"}`
-                                    : activeTab === "Branches"
-                                      ? `Showing ${branches.length} branch${branches.length === 1 ? "" : "es"}`
-                                      : activeTab === "Tools"
-                                        ? `Showing ${tools.length} tool${tools.length === 1 ? "" : "s"}`
-                                        : activeTab === "Product Categories"
-                                          ? `Showing ${productCategories.length} categor${productCategories.length === 1 ? "y" : "ies"}`
-                                        : activeTab === "Features"
-                                          ? `Showing ${features.length} feature${features.length === 1 ? "" : "s"}`
-                                          : `Showing ${currencyOptions.length + 3} system setting${currencyOptions.length + 3 === 1 ? "" : "s"}`}
-                            </p>
-                            <span className="rounded-md border border-white/10 bg-white/[0.035] px-3 py-1.5 text-xs font-semibold text-white/55">
-                                {activeTab}
-                            </span>
-                        </div>
+                        {activeTab === "System" ? (
+                            <div className="flex min-h-14 items-center justify-between border-t border-white/10 px-5 py-3">
+                                <p className="text-xs text-white/45">
+                                    Showing {systemSettingCount} system setting{systemSettingCount === 1 ? "" : "s"}
+                                </p>
+                                <span className="rounded-md border border-white/10 bg-white/[0.035] px-3 py-1.5 text-xs font-semibold text-white/55">
+                                    {activeTab}
+                                </span>
+                            </div>
+                        ) : (
+                            <DataTablePagination
+                                totalItems={activeTotalItems}
+                                page={page}
+                                pageSize={pageSize}
+                                onPageChange={setPage}
+                                onPageSizeChange={(nextPageSize) => {
+                                    setPageSize(nextPageSize);
+                                    setPage(1);
+                                }}
+                            />
+                        )}
                     </div>
                 </div>
             </section>
 
+            {isBusinessModalOpen && (
+                <SettingsModal
+                    title="Add Business"
+                    subtitle="New businesses get their own MongoDB database automatically."
+                    onClose={closeBusinessModal}
+                    onSubmit={handleCreateBusiness}
+                >
+                    <label>
+                        <span className="text-xs font-medium uppercase tracking-[0.14em] text-white/35">Business Name</span>
+                        <input
+                            className="mt-2 h-11 w-full rounded-lg border border-white/10 bg-black/20 px-3 text-sm font-semibold text-white outline-none transition placeholder:text-white/30 focus:border-[#842cff] focus:ring-2 focus:ring-[#842cff]/20"
+                            value={businessForm.name}
+                            onChange={(event) => setBusinessForm({ name: event.target.value })}
+                            placeholder="Business C"
+                            autoFocus
+                        />
+                    </label>
+                </SettingsModal>
+            )}
+
             {isRoleModalOpen && (
                 <SettingsModal
-                    title={editingRoleId ? "Edit Role" : "Add Role"}
-                    subtitle="Roles appear in the employee form."
+                    title={editingRoleId ? "Edit Department Role" : "Add Department Role"}
+                    subtitle="Department roles appear in the employee form."
                     onClose={closeRoleModal}
                     onSubmit={handleSaveRole}
                 >
                     <label>
-                        <span className="text-xs font-medium uppercase tracking-[0.14em] text-white/35">Role Name</span>
+                        <span className="text-xs font-medium uppercase tracking-[0.14em] text-white/35">Department</span>
+                        <input
+                            className="mt-2 h-11 w-full rounded-lg border border-white/10 bg-black/20 px-3 text-sm font-semibold text-white outline-none transition placeholder:text-white/30 focus:border-[#842cff] focus:ring-2 focus:ring-[#842cff]/20"
+                            value={roleForm.department}
+                            onChange={(event) => setRoleForm((role) => ({ ...role, department: event.target.value }))}
+                            placeholder="Sales"
+                        />
+                    </label>
+                    <label>
+                        <span className="text-xs font-medium uppercase tracking-[0.14em] text-white/35">Role</span>
                         <input
                             className="mt-2 h-11 w-full rounded-lg border border-white/10 bg-black/20 px-3 text-sm font-semibold text-white outline-none transition placeholder:text-white/30 focus:border-[#842cff] focus:ring-2 focus:ring-[#842cff]/20"
                             value={roleForm.name}
@@ -703,12 +1302,25 @@ export default function AdminSettings() {
                         />
                     </label>
                     <label>
+                        <span className="text-xs font-medium uppercase tracking-[0.14em] text-white/35">Branch Category</span>
+                        <select
+                            className="mt-2 h-11 w-full rounded-lg border border-white/10 bg-[#0d1018] px-3 text-sm font-semibold text-white outline-none transition focus:border-[#842cff] focus:ring-2 focus:ring-[#842cff]/20"
+                            value={roleForm.branch}
+                            onChange={(event) => setRoleForm((role) => ({ ...role, branch: event.target.value }))}
+                        >
+                            <option>All branches</option>
+                            {branches.map((branch) => (
+                                <option key={branch._id}>{branch.name}</option>
+                            ))}
+                        </select>
+                    </label>
+                    <label>
                         <span className="text-xs font-medium uppercase tracking-[0.14em] text-white/35">Description</span>
                         <textarea
                             className="mt-2 min-h-24 w-full resize-none rounded-lg border border-white/10 bg-black/20 p-3 text-sm font-semibold text-white outline-none transition placeholder:text-white/30 focus:border-[#842cff] focus:ring-2 focus:ring-[#842cff]/20"
                             value={roleForm.description}
                             onChange={(event) => setRoleForm((role) => ({ ...role, description: event.target.value }))}
-                            placeholder="Optional role description"
+                            placeholder="Responsibilities, coverage, or internal notes"
                         />
                     </label>
                 </SettingsModal>
@@ -865,12 +1477,10 @@ export default function AdminSettings() {
 
             {deleteTarget && (
                 <TwoStepDeleteModal
-                    title={deleteStep === 1 ? "Are you sure you want to delete?" : `You are deleting this ${deleteTarget.type.slice(0, -1).toLowerCase()}`}
+                    title="Are you sure?"
                     label={deleteTarget.label}
                     context={deleteTarget.type}
-                    step={deleteStep}
                     onCancel={closeDeletePrompt}
-                    onContinue={() => setDeleteStep(2)}
                     onConfirm={confirmDelete}
                 />
             )}
@@ -892,7 +1502,7 @@ function RowActions({ label, onEdit, onArchive }: { label: string; onEdit: () =>
     return (
         <div className="flex justify-end gap-1.5">
             <button
-                className="flex size-8 items-center justify-center rounded-lg border border-white/10 bg-white/[0.05] text-white/60 transition hover:bg-white/10 hover:text-white focus:outline-none focus:ring-2 focus:ring-[#842cff]/60"
+                className="flex size-8 items-center justify-center rounded-lg border border-slate-300 bg-white !text-black transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#842cff]/60"
                 type="button"
                 aria-label={`Edit ${label}`}
                 onClick={onEdit}
@@ -900,7 +1510,7 @@ function RowActions({ label, onEdit, onArchive }: { label: string; onEdit: () =>
                 <FiEdit2 className="size-4" aria-hidden="true" />
             </button>
             <button
-                className="flex size-8 items-center justify-center rounded-lg border border-red-400/15 bg-red-400/8 text-red-100/60 transition hover:bg-red-400/10 hover:text-red-100 focus:outline-none focus:ring-2 focus:ring-red-400/35"
+                className="flex size-8 items-center justify-center rounded-lg border border-red-300 bg-white text-red-700 transition hover:bg-red-50 hover:text-red-800 focus:outline-none focus:ring-2 focus:ring-red-400/35"
                 type="button"
                 aria-label={`Archive ${label}`}
                 onClick={onArchive}
@@ -915,8 +1525,8 @@ function FeatureToggle({ checked, label, onChange }: { checked: boolean; label: 
     return (
         <button
             className={[
-                "mx-auto flex h-7 w-12 items-center rounded-full border px-1 transition focus:outline-none focus:ring-2 focus:ring-[#842cff]/60",
-                checked ? "border-[#842cff]/50 bg-[#842cff]/45" : "border-white/10 bg-white/[0.06]",
+                "mx-auto flex h-7 w-12 items-center rounded-full border px-1 transition focus:outline-none focus:ring-2 focus:ring-[color-mix(in_srgb,var(--primary)_60%,transparent)]",
+                checked ? "theme-primary-border bg-[color-mix(in_srgb,var(--primary)_45%,transparent)]" : "border-white/10 bg-white/[0.06]",
             ].join(" ")}
             type="button"
             role="switch"
@@ -948,7 +1558,14 @@ function SettingsModal({
     children: React.ReactNode;
 }) {
     return (
-        <div className="modal-backdrop-enter fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm">
+        <div
+            className="modal-backdrop-enter fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm"
+            onMouseDown={(event) => {
+                if (event.target === event.currentTarget) {
+                    onClose();
+                }
+            }}
+        >
             <form
                 className="modal-panel-enter flex w-full max-w-[30rem] flex-col rounded-lg border border-white/10 bg-[#0d1018] shadow-2xl shadow-black/40"
                 onSubmit={onSubmit}
@@ -995,21 +1612,24 @@ function TwoStepDeleteModal({
     title,
     label,
     context,
-    step,
     onCancel,
-    onContinue,
     onConfirm,
 }: {
     title: string;
     label: string;
     context: string;
-    step: 1 | 2;
     onCancel: () => void;
-    onContinue: () => void;
     onConfirm: () => void;
 }) {
     return (
-        <div className="modal-backdrop-enter fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm">
+        <div
+            className="modal-backdrop-enter fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm"
+            onMouseDown={(event) => {
+                if (event.target === event.currentTarget) {
+                    onCancel();
+                }
+            }}
+        >
             <div className="modal-panel-enter w-full max-w-[32rem] overflow-hidden rounded-lg border border-red-400/20 bg-[#0d1018] shadow-2xl shadow-red-950/30">
                 <div className="bg-[radial-gradient(circle_at_15%_20%,rgba(239,68,68,0.22),transparent_35%),linear-gradient(135deg,rgba(239,68,68,0.12),rgba(132,44,255,0.08))] px-5 py-4">
                     <div className="flex items-start justify-between gap-4">
@@ -1020,19 +1640,12 @@ function TwoStepDeleteModal({
                             <div>
                                 <p className="text-xs font-medium uppercase tracking-[0.14em] text-red-100/55">Delete {context}</p>
                                 <h3 className="mt-1 text-lg font-semibold text-white">{title}</h3>
-                                <p className="mt-1 text-sm text-red-50/60">
-                                    {step === 1 ? "This will remove it from active records." : "Final confirmation required before this record is archived."}
-                                </p>
+                                <p className="mt-1 text-sm text-red-50/60">This will remove it from active records.</p>
                             </div>
                         </div>
                         <button className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-black/20 text-white/60 transition hover:bg-white/10 hover:text-white" type="button" onClick={onCancel} aria-label="Close delete confirmation">
                             <FiX className="size-4" aria-hidden="true" />
                         </button>
-                    </div>
-                    <div className="mt-4 grid grid-cols-2 gap-2">
-                        {[1, 2].map((currentStep) => (
-                            <div key={currentStep} className={["h-1.5 rounded-full transition", step >= currentStep ? "bg-red-400" : "bg-white/10"].join(" ")} />
-                        ))}
                     </div>
                 </div>
                 <div className="p-5">
@@ -1042,17 +1655,13 @@ function TwoStepDeleteModal({
                     </div>
                     <div className="mt-3 rounded-lg border border-yellow-300/20 bg-yellow-300/10 p-3">
                         <p className="text-sm leading-6 text-yellow-50/75">
-                            {step === 1 ? "Review this record before continuing. You will be asked one more time." : `You are deleting ${label}.`}
+                            Are you sure you want to delete {label}?
                         </p>
                     </div>
                 </div>
                 <div className="flex justify-end gap-2 border-t border-white/10 px-5 py-3">
                     <button className="h-10 rounded-lg border border-white/10 bg-white/[0.05] px-4 text-sm font-semibold text-white/60 transition hover:bg-white/10 hover:text-white" type="button" onClick={onCancel}>Cancel</button>
-                    {step === 1 ? (
-                        <button className="h-10 rounded-lg border border-red-400/20 bg-red-400/10 px-4 text-sm font-semibold text-red-100/80 transition hover:bg-red-400/15 hover:text-red-100" type="button" onClick={onContinue}>Continue</button>
-                    ) : (
-                        <button className="h-10 rounded-lg bg-red-500 px-4 text-sm font-semibold text-white transition hover:bg-red-400" type="button" onClick={onConfirm}>Delete</button>
-                    )}
+                    <button className="h-10 rounded-lg bg-red-500 px-4 text-sm font-semibold text-white transition hover:bg-red-400" type="button" onClick={onConfirm}>Delete</button>
                 </div>
             </div>
         </div>

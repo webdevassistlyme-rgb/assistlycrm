@@ -1,6 +1,6 @@
 import { api } from "../lib/api";
 
-export type KnowledgeBaseEntryType = "Product" | "FAQ";
+export type KnowledgeBaseEntryType = "Product" | "FAQ" | "Article";
 export type KnowledgeBaseStatus = "Active" | "Draft" | "Archived";
 
 export type KnowledgeBaseEntry = {
@@ -16,9 +16,11 @@ export type KnowledgeBaseEntry = {
     answer: string;
     comments?: KnowledgeBaseComment[];
     status: KnowledgeBaseStatus;
+    createdAt?: string;
+    updatedAt?: string;
 };
 
-export type KnowledgeBaseInput = Omit<KnowledgeBaseEntry, "_id">;
+export type KnowledgeBaseInput = Omit<KnowledgeBaseEntry, "_id" | "createdAt" | "updatedAt">;
 
 export type KnowledgeBaseComment = {
     comment: string;
@@ -88,13 +90,16 @@ export async function archiveKnowledgeBaseEntry(id: string) {
 }
 
 export async function uploadKnowledgeBasePhoto(file: File) {
-    const dataUrl = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result || ""));
-        reader.onerror = () => reject(reader.error);
-        reader.readAsDataURL(file);
+    if (!(file instanceof File) || !file.type.toLowerCase().startsWith("image/")) {
+        throw new Error("Please choose a valid image file.");
+    }
+
+    const response = await api.post<{ url: string }>("/knowledge-base/photos", file, {
+        headers: {
+            "Content-Type": file.type || "application/octet-stream",
+            "X-File-Name": encodeURIComponent(file.name || "image"),
+        },
     });
-    const response = await api.post<{ url: string }>("/knowledge-base/photos", { dataUrl, fileName: file.name });
 
     return response.data;
 }

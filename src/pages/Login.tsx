@@ -1,6 +1,11 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router";
-import { loginWithEmployeeCode, setAuthUser } from "../api/auth";
+import { loginWithEmployeeCode } from "../api/auth";
+import { getBusinesses } from "../api/businesses";
+import { setAuthUser } from "../api/authStorage";
+import { getActiveBusinessId, setActiveBusinessId, type BusinessOption } from "../api/businessStorage";
+import { refreshSocketBusinessContext } from "../lib/socket";
 
 const BadgeIcon = () => (
   <svg
@@ -27,24 +32,67 @@ const BadgeIcon = () => (
 
 function Login() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [employeeCode, setEmployeeCode] = useState("");
+  const [businesses, setBusinesses] = useState<BusinessOption[]>([]);
+  const [selectedBusinessId, setSelectedBusinessId] = useState(() => getActiveBusinessId());
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    let isMounted = true;
+
+    getBusinesses()
+      .then((businessOptions) => {
+        if (!isMounted) return;
+
+        const savedBusinessId = getActiveBusinessId();
+        const selectedBusiness =
+          businessOptions.find((business) => business.id === savedBusinessId) ||
+          businessOptions.find((business) => business.isDefault) ||
+          businessOptions[0];
+
+        setBusinesses(businessOptions);
+
+        if (selectedBusiness) {
+          setSelectedBusinessId(selectedBusiness.id);
+          setActiveBusinessId(selectedBusiness.id);
+        }
+      })
+      .catch(() => {
+        if (isMounted) {
+          setError("Unable to load businesses. Please try again.");
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError("");
 
+    if (!selectedBusinessId) {
+      setError("Select a business to continue.");
+      return;
+    }
+
     try {
-      const authUser = await loginWithEmployeeCode(employeeCode);
+      setActiveBusinessId(selectedBusinessId);
+      refreshSocketBusinessContext();
+      const authUser = await loginWithEmployeeCode(employeeCode, selectedBusinessId);
       setAuthUser(authUser);
+      queryClient.clear();
       navigate(authUser.userType === "admin" ? "/admin/dashboard" : "/dashboard", { replace: true });
-    } catch {
-      setError("Invalid employee code");
+    } catch (loginError) {
+      const status = (loginError as { response?: { status?: number } })?.response?.status;
+      setError(status === 401 ? "Invalid employee code" : "Unable to log in. Please try again.");
     }
   };
 
   return (
-    <main className="min-h-screen overflow-hidden bg-[#050408] text-white">
+    <main className="login-screen min-h-screen overflow-hidden bg-[#050408] text-white">
       <section
         className="relative flex min-h-screen items-center justify-center bg-cover bg-center px-5 py-10 sm:px-8 lg:px-14"
         style={{ backgroundImage: "url('/images/background.png')" }}
@@ -69,12 +117,33 @@ function Login() {
             </div>
 
             <div className="mt-7 space-y-5">
+              {businesses.length > 1 && (
+                <label className="block">
+                  <span className="mb-2.5 block text-sm font-semibold text-zinc-200">Business</span>
+                  <select
+                    className="h-12 w-full rounded-lg border border-white/14 bg-black/30 px-4 text-sm text-white outline-none transition focus:border-[#842cff] focus:ring-2 focus:ring-[#842cff]/25"
+                    value={selectedBusinessId}
+                    onChange={(event) => {
+                      setSelectedBusinessId(event.target.value);
+                      setActiveBusinessId(event.target.value);
+                    }}
+                  >
+                    {businesses.map((business) => (
+                      <option className="bg-[#111018] text-white" key={business.id} value={business.id}>
+                        {business.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+
               <label className="block">
                 <span className="mb-2.5 block text-sm font-semibold text-zinc-200">Employee Code</span>
-                <span className="flex h-12 items-center gap-3 rounded-lg border border-white/14 bg-black/30 px-4 text-[#842cff] focus-within:border-[#842cff] focus-within:ring-2 focus-within:ring-[#842cff]/25">
+                <span className="login-code-field flex h-12 items-center gap-3 rounded-lg border border-white/14 bg-black/30 px-4 text-[#842cff] focus-within:border-[#842cff] focus-within:ring-2 focus-within:ring-[#842cff]/25">
                   <BadgeIcon />
                   <input
-                    className="h-full min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-zinc-500"
+                    className="login-code-input h-full min-w-0 flex-1 border-0 bg-transparent text-sm text-white outline-none placeholder:text-zinc-500"
+                    style={{ backgroundColor: "transparent", color: "#ffffff", borderColor: "transparent", boxShadow: "none" }}
                     type="text"
                     placeholder="Enter employee code"
                     autoComplete="off"

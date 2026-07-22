@@ -1,4 +1,5 @@
-import { Schema, model, Types } from "mongoose";
+import { Schema, Types } from "mongoose";
+import { tenantModel } from "../config/tenancy";
 
 export type TaskStatus = "Todo" | "In Progress" | "Done" | "Blocked";
 export type TaskPriority = "Low" | "Medium" | "High" | "Urgent";
@@ -12,6 +13,12 @@ export type TaskDocument = {
   priority: TaskPriority;
   dueAt: Date | null;
   completedAt: Date | null;
+  comments: {
+    authorName: string;
+    authorType: "admin" | "employee";
+    body: string;
+    createdAt: Date;
+  }[];
   isArchived: boolean;
 };
 
@@ -25,6 +32,17 @@ const taskSchema = new Schema<TaskDocument>(
     priority: { type: String, enum: ["Low", "Medium", "High", "Urgent"], default: "Medium" },
     dueAt: { type: Date, default: null },
     completedAt: { type: Date, default: null },
+    comments: {
+      type: [
+        {
+          authorName: { type: String, trim: true, default: "Employee" },
+          authorType: { type: String, enum: ["admin", "employee"], default: "employee" },
+          body: { type: String, required: true, trim: true },
+          createdAt: { type: Date, default: Date.now },
+        },
+      ],
+      default: [],
+    },
     isArchived: { type: Boolean, default: false },
   },
   { timestamps: true }
@@ -32,4 +50,4 @@ const taskSchema = new Schema<TaskDocument>(
 
 taskSchema.index({ assignedTo: 1, status: 1, dueAt: 1, isArchived: 1 });
 
-export const Task = model<TaskDocument>("Task", taskSchema);
+export const Task = tenantModel<TaskDocument>("Task", taskSchema);

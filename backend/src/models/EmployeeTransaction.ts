@@ -1,4 +1,5 @@
-import { Schema, model, Types } from "mongoose";
+import { Schema, Types } from "mongoose";
+import { tenantModel } from "../config/tenancy";
 
 export type EmployeeTransactionDocument = {
   employee: Types.ObjectId;
@@ -25,7 +26,7 @@ const employeeTransactionSchema = new Schema<EmployeeTransactionDocument>(
   { timestamps: true }
 );
 
-export const EmployeeTransaction = model<EmployeeTransactionDocument>(
+export const EmployeeTransaction = tenantModel<EmployeeTransactionDocument>(
   "EmployeeTransaction",
   employeeTransactionSchema
 );
